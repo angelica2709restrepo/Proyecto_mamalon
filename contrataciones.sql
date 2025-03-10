@@ -3,9 +3,9 @@
 -- https://www.phpmyadmin.net/
 --
 -- Servidor: 127.0.0.1
--- Tiempo de generación: 23-01-2025 a las 17:23:06
--- Versión del servidor: 10.4.28-MariaDB
--- Versión de PHP: 8.2.4
+-- Tiempo de generación: 10-03-2025 a las 20:55:40
+-- Versión del servidor: 10.4.32-MariaDB
+-- Versión de PHP: 8.2.12
 
 SET SQL_MODE = "NO_AUTO_VALUE_ON_ZERO";
 START TRANSACTION;
@@ -18,7 +18,7 @@ SET time_zone = "+00:00";
 /*!40101 SET NAMES utf8mb4 */;
 
 --
--- Base de datos: `sena2`
+-- Base de datos: `contrataciones`
 --
 
 -- --------------------------------------------------------
@@ -93,10 +93,12 @@ CREATE TABLE `cargo` (
 
 INSERT INTO `cargo` (`id`, `nombreCargo`, `idJefe`) VALUES
 (1, 'Administrativo Contratista', 1),
-(2, 'Instructor Contratista', 1),
+(2, 'Instructor Contratist', 1),
 (3, 'Instructor Contratista - Virtual', 1),
 (4, 'Instructor Contratista - Articulación', 1),
-(5, 'Instructor Contratista - Desplazados', 1);
+(5, 'Instructor Contratista - Desplazados', 1),
+(313214, 'aa', 1),
+(313215, 'nose', 1);
 
 -- --------------------------------------------------------
 
@@ -114,7 +116,9 @@ CREATE TABLE `ciudad` (
 --
 
 INSERT INTO `ciudad` (`id`, `nombreCiudad`) VALUES
-(18, 'Bogotá D.C');
+(18, 'Bogotá D'),
+(19, 'Medellin'),
+(20, '');
 
 -- --------------------------------------------------------
 
@@ -158,7 +162,8 @@ CREATE TABLE `clientes` (
 
 INSERT INTO `clientes` (`id`, `primerNombre`, `segundoNombre`, `primerApellido`, `segundoApellido`, `tipoDocumento`, `departamentoExpedicion`, `ciudadExpedicion`, `fechaExpedicion`, `genero`, `fechaNacimento`, `Rh`, `dirrecion`, `correo`, `correoAdicional`, `celular`, `telefono`, `ARL`, `EPS`, `PAA`, `idBanco`, `numeroCuenta`, `CDP`, `fechaRegistro`, `ultimoAcceso`, `Estado`, `usuarioCreador`) VALUES
 (5646, 'asdad', 'asdasd', 'asdad', 'dad', 1, 2, 18, '2024-10-08', 1, '2024-10-08', 2, 'dfsdfasd', 'miguel@gmail.com', 'borbon@gmail.com', 131231, 123213, 1, 1, 1231223, 2, 1313, 12313, '2024-10-08', '2024-10-08 05:00:00', 1, 46),
-(72151, 'dadad', 'asddasssdf', 'sdsdf', 'sdfsf', 1, 2, 18, '2024-10-08', 1, '2024-10-08', 2, 'dfsdfasd', 'miguel@gmail.com', 'borbon@gmail.com', 131231, 123213, 1, 1, 1231223, 2, 1313, 12313, '2024-10-08', '2024-10-08 05:00:00', 1, 46);
+(72151, 'dadad', 'asddasssdf', 'sdsdf', 'sdfsf', 1, 2, 18, '2024-10-08', 1, '2024-10-08', 2, 'dfsdfasd', 'miguel@gmail.com', 'borbon@gmail.com', 131231, 123213, 1, 1, 1231223, 2, 1313, 12313, '2024-10-08', '2024-10-08 05:00:00', 1, 46),
+(28540464, 'Leidy', 'Johanna', 'Cifuentes', 'Martinez', 1, 30, 18, '2025-03-03', 2, '2025-03-09', 3, 'cafaf', 'cifuentes0903@gmail.com', 'lcifuentesm@sena.edu.co', 2147483647, 3, 1, 6, 1001, 6, 141151515, 677, '2025-03-05', '2025-03-05 05:00:00', 1, 47);
 
 -- --------------------------------------------------------
 
@@ -191,7 +196,8 @@ INSERT INTO `contrato` (`id`, `idVersion`, `idClientes`, `idTipoContrato`, `idCa
 (63, '63-1', 5646, 2, 1, 5, 78, 7, 'qqqqqq', '2024-10-09', '2026-10-15', 123456, 987, 5678),
 (65, '63-2', 5646, 2, 1, 5, 78, 7, 'qqqqqq', '2024-10-09', '2026-10-15', 123456, 987, 5678),
 (66, '63-2', 5646, 2, 1, 5, 78, 7, 'qqqqqq', '2024-10-09', '2026-10-15', 123456, 987, 5678),
-(67, '63-3', 5646, 2, 1, 5, 78, 7, 'qqqqqq', '2024-10-09', '2026-10-15', 123456, 987, 5678);
+(67, '63-3', 5646, 2, 1, 5, 78, 7, 'qqqqqq', '2024-10-09', '2026-10-15', 123456, 987, 5678),
+(68, '68-1', 28540464, 5, 2, 5, 1, 28, '', '2025-02-10', '2025-12-09', 57785, 588886, 67788);
 
 -- --------------------------------------------------------
 
@@ -209,10 +215,10 @@ CREATE TABLE `departamentos` (
 --
 
 INSERT INTO `departamentos` (`id`, `nombreDepartamento`) VALUES
-(2, 'Amazonas'),
+(2, 'Amazonass'),
 (3, 'Antioquia'),
-(4, 'Arauca'),
-(5, 'Atlántico'),
+(4, 'Araucaa'),
+(5, 'Atlánticoo'),
 (6, 'Bolívar '),
 (7, 'Boyacá'),
 (8, 'Caldas'),
@@ -240,7 +246,8 @@ INSERT INTO `departamentos` (`id`, `nombreDepartamento`) VALUES
 (30, 'Tolima'),
 (31, 'Valle del Cauca'),
 (32, 'Vaupés'),
-(33, 'Vichada');
+(33, 'Vichada'),
+(34, 'cino');
 
 -- --------------------------------------------------------
 
@@ -302,7 +309,7 @@ CREATE TABLE `eps` (
 
 INSERT INTO `eps` (`id`, `nombreEPS`) VALUES
 (1, 'COOSALUD EPS-S '),
-(2, 'NUEVA EPS'),
+(2, 'NUEVA EP'),
 (3, 'MUTUAL SER  '),
 (5, 'SALUD TOTAL EPS S.A.'),
 (6, 'EPS SANITAS '),
@@ -629,9 +636,8 @@ CREATE TABLE `rolesusuarios` (
 --
 
 INSERT INTO `rolesusuarios` (`id`, `nombreRol`) VALUES
-(1, 'SuperUsuario'),
-(2, 'Administrador'),
-(3, 'Contratista');
+(1, 'Usuario'),
+(2, 'Administrador');
 
 -- --------------------------------------------------------
 
@@ -715,8 +721,8 @@ CREATE TABLE `usuarios` (
 
 INSERT INTO `usuarios` (`id`, `numeroCedulaCliente`, `idRol`, `correoCli`, `contraseñaCli`) VALUES
 (46, 1032937438, 1, 'm@', '$2b$12$PP/LLr0mTuRqy.Bl/ywJ1ezBaQV8k.PYOp5oYL6q/hyBqhhnSUlmW'),
-(47, 12, 1, 'b@', '$2b$12$Hxcpd1Q801pHR8IPjqnr.eKJe8hJ85aMlw.a6H2WCIfZcw17PEp5W'),
-(48, 6789, 2, 'q@', '$2b$12$XzHXcjVJ7gkbzABX7ltX/ugCgH7JsodIYy6VuBxGxkZ2W65ylxTSG');
+(47, 12, 1, 'b@', '$2b$12$sEtgYYSylN8IDTBy3Rg.6uVm2HUH4lr3CRQU/anpoHnRCuUdNRFKK'),
+(48, 6789, 2, 'q@', '$2b$12$yrmgg6zWJzJHvEUHsMK2KuKzIZik2H2N5QjTYUjydSxhHpt6OJBt6');
 
 --
 -- Índices para tablas volcadas
@@ -883,25 +889,25 @@ ALTER TABLE `banco`
 -- AUTO_INCREMENT de la tabla `cargo`
 --
 ALTER TABLE `cargo`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=313214;
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=313216;
 
 --
 -- AUTO_INCREMENT de la tabla `ciudad`
 --
 ALTER TABLE `ciudad`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=19;
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=21;
 
 --
 -- AUTO_INCREMENT de la tabla `contrato`
 --
 ALTER TABLE `contrato`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=68;
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=69;
 
 --
 -- AUTO_INCREMENT de la tabla `departamentos`
 --
 ALTER TABLE `departamentos`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=34;
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=37;
 
 --
 -- AUTO_INCREMENT de la tabla `dependencia`
@@ -979,7 +985,7 @@ ALTER TABLE `tipodedocumento`
 -- AUTO_INCREMENT de la tabla `usuarios`
 --
 ALTER TABLE `usuarios`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=49;
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=50;
 
 --
 -- Restricciones para tablas volcadas
