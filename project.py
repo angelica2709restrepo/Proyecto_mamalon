@@ -4,9 +4,8 @@ import pymysql
 import pandas as pd
 import os, bcrypt, re
 from PIL import Image
-import ctkdlib
 import tkinter as tk
-import datetime
+import datetime, mysql.connector, openpyxl
 from tkcalendar import DateEntry
 from num2words import num2words 
 from dateutil.relativedelta import relativedelta
@@ -16,6 +15,9 @@ from docx.shared import Pt
 from docx2pdf import convert
 from openpyxl import load_workbook
 from openpyxl.utils import get_column_letter
+from openpyxl.styles import Border, Side
+from reportlab.pdfgen import canvas
+from reportlab.lib.pagesizes import letter
 
 #Colores diseño nuevo
 COLOR_FONDO = "white"  
@@ -59,7 +61,6 @@ class DataBase:
         self.cursor.close()
         self.connection.close()
 
-
 # Variables globales
 usuario_iniciado = True  # Cambia a False si el usuario aún no ha iniciado sesión
 menu_expandido = False
@@ -74,1365 +75,670 @@ def abrir_pantalla(contenido_frame, titulo):
     label_titulo.pack(pady=20)
     
     funciones_pantalla = {
-        "Pantalla ARL": mostrar_arl,
-        "Pantalla EPS": lambda frame: mostrar_eps(frame, db),
+        "Pantalla EPS y ARL": lambda frame: mostrar_epsarl(frame, db),
         "Pantalla Bancos": mostrar_bancos,
-        "Pantalla Ciudad": mostrar_ciudad,
-        "Pantalla Cargo": mostrar_cargo,
+        "Pantalla Ciudad y Departamento": lambda frame:mostrar_ciudades_departamentos(frame,db),
+        "Pantalla Cargo": lambda frame: mostrar_cargo(frame,db),
         "Pantalla Tipo de contrato": mostrar_tipodecontrato,
-        "Pantalla Dependencia": mostrar_dependencia,
-        "Pantalla Departamento": mostrar_departamento,
-        "Pantalla Tipo de Cuenta": mostrar_tipo_cuenta,
-        "Pantalla Contrato": mostrar_contrato,
+        "Pantalla Áreas": mostrar_areas,
+        "Pantalla Certificado": mostrar_certificado,
         "Pantalla Contratistas": mostrar_Contratista,
-        "Pantalla Jefe": mostrar_jefes,
-        "Pantalla Registro Usuarios": mostrar_usuario
+        "Pantalla Usuarios": lambda frame:mostrar_usuario(frame,db)
     }
     
     if titulo in funciones_pantalla:
         funciones_pantalla[titulo](contenido_frame)
 
-############################################# Pantalla EPS ######################################################
-# Función para mostrar la pantalla de EPS
-def mostrar_eps(frame, db):
-    modificar = False
-    dni = ctk.StringVar()
-    nombre = ctk.StringVar()
-    eps_id = None  # Variable para almacenar el ID seleccionado
+############################################# Pantalla EPS y ARL ######################################################
+def mostrar_epsarl(frame, db):
+    nombre_eps = ctk.StringVar()
+    accion_eps = ctk.StringVar(value="Agregar")
+    eps_id = None
 
-    def exportar_a_excel_eps():
-        try:
-            sql = "SELECT id, nombreEPS FROM eps"
-            db.cursor.execute(sql)
-            filas = db.cursor.fetchall()
-            if filas:
-                df = pd.DataFrame(filas, columns=['ID', 'Nombre'])
-                filepath = filedialog.asksaveasfilename(defaultextension=".xlsx",
-                                                        filetypes=[("Excel files", "*.xlsx"),
-                                                                   ("All files", "*.*")])
-                if filepath:
-                    df.to_excel(filepath, index=False)
-                    messagebox.showinfo("Exportación Exitosa", f"Datos exportados a {filepath}")
-                    os.startfile(filepath)
-            else:
-                messagebox.showwarning("Sin Datos", "No hay datos para exportar")
-        except Exception as e:
-            messagebox.showerror("Error", f"No se pudo exportar los datos: {e}")
+    nombre_arl = ctk.StringVar()
+    accion_arl = ctk.StringVar(value="Agregar")
+    arl_id = None
 
-    def importar_de_excel_eps():
-        filepath = filedialog.askopenfilename(filetypes=[("Excel files", "*.xlsx"), ("All files", "*.*")])
-        if filepath:
-            try:
-                df = pd.read_excel(filepath)
-                for _, row in df.iterrows():
-                    sql = "INSERT INTO eps (id, nombreEPS) VALUES (%s, %s)"
-                    db.cursor.execute(sql, (row['ID'], row['Nombre']))
-                db.connection.commit()
-                messagebox.showinfo("Importación Exitosa", "Datos importados correctamente desde Excel")
-                llenar_tabla()
-            except Exception as e:
-                messagebox.showerror("Error", f"No se pudo importar los datos: {e}")
-
-    def seleccionar(event):
-        """Cuando se selecciona un registro, actualiza el campo de nombre."""
-        nonlocal eps_id
-        seleccion = tveps.selection()
+    def seleccionar_arl(event):
+        nonlocal arl_id
+        seleccion = tvARL.selection()
         if seleccion:
-            eps_id = seleccion[0]  # Guarda el ID seleccionado
-            valores = tveps.item(eps_id, "values")
-            dni.set(valores[0])
-            nombre.set(valores[1])
+            valores = tvARL.item(seleccion[0], "values")
+            if valores:
+                arl_id = valores[0]
+                nombre_arl.set(valores[1])  # Mostrar nombre en el campo de texto
 
-    def llenar_tabla(filtro=""):
-        """Llena la tabla con los registros filtrados en tiempo real."""
-        vaciar_tabla()
-        sql = "SELECT id, nombreEPS FROM eps WHERE nombreEPS LIKE %s"
-        db.cursor.execute(sql, (f"%{filtro}%",))
-        filas = db.cursor.fetchall()
-        for fila in filas:
-            tveps.insert("", 'end', iid=fila[0], text=fila[0], values=(fila[0], fila[1]))
-
-    def actualizar():
-        """Actualiza el nombre de la EPS seleccionada."""
+    def seleccionar_eps(event):
         nonlocal eps_id
-        if eps_id and nombre.get().strip():
-            sql = "UPDATE eps SET nombreEPS=%s WHERE id=%s"
-            db.cursor.execute(sql, (nombre.get(), eps_id))
-            db.connection.commit()
-            llenar_tabla(nombre.get())  # Recargar tabla con el nuevo nombre
-        else:
-            print("Seleccione un registro válido.")  # Mensaje interno
+        seleccionado = tvEPS.selection()
+        if seleccionado:
+            valores = tvEPS.item(seleccionado[0], "values")
+            if valores:
+                eps_id = valores[0]
+                nombre_eps.set(valores[1])  # Mostrar nombre en el campo de texto
 
-    def vaciar_tabla():
-        """Limpia la tabla antes de llenarla nuevamente."""
-        for fila in tveps.get_children():
-            tveps.delete(fila)
+    def llenar_tabla_arl():
+        tvARL.delete(*tvARL.get_children())
+        for fila in db.obtener_datos("SELECT id, nombreARL FROM arl"):
+            tvARL.insert("", "end", values=fila)
 
-    # Crear el marco principal
+    def llenar_tabla_eps():
+        tvEPS.delete(*tvEPS.get_children())
+        for fila in db.obtener_datos("SELECT id, nombreEPS FROM eps"):
+            tvEPS.insert("", "end", values=fila)
+
+    def ejecutar_accion_arl():
+        accion = accion_arl.get().strip()
+        
+        if accion == "Agregar" and nombre_arl.get().strip():
+            db.ejecutar_consulta("INSERT INTO arl (nombreARL) VALUES (%s)", (nombre_arl.get(),))
+            llenar_tabla_arl()
+        
+        elif accion == "Modificar" and arl_id and nombre_arl.get().strip():
+            db.ejecutar_consulta("UPDATE arl SET nombreARL=%s WHERE id=%s", (nombre_arl.get(), arl_id))
+            llenar_tabla_arl()
+        
+        elif accion == "Eliminar" and arl_id:
+            db.ejecutar_consulta("DELETE FROM arl WHERE id=%s", (arl_id,))
+            llenar_tabla_arl()
+
+    def ejecutar_accion_eps():
+        texto = nombre_eps.get().strip()
+        if not texto:
+            return
+
+        if accion_eps.get() == "Agregar":
+            db.ejecutar_consulta("INSERT INTO eps (nombreEPS) VALUES (%s)", (texto,))
+        elif accion_eps.get() == "Modificar" and eps_id:
+            db.ejecutar_consulta("UPDATE eps SET nombreEPS = %s WHERE id = %s", (texto, eps_id))
+        elif accion_eps.get() == "Eliminar" and eps_id:
+            db.ejecutar_consulta("DELETE FROM eps WHERE id = %s", (eps_id,))
+        
+        llenar_tabla_eps()
+
     marco = ctk.CTkFrame(frame, fg_color="transparent")
     marco.pack(fill="both", expand=True, padx=20, pady=20)
 
-    # Campo DNI (No se filtra con este)
-    ctk.CTkLabel(marco, text="DNI", text_color=COLOR_TEXTO).grid(column=0, row=0, padx=5, pady=5)
-    txtDni = ctk.CTkEntry(marco, textvariable=dni, fg_color="white", text_color=COLOR_TEXTO)
-    txtDni.grid(column=1, row=0)
+    marco_arl = ctk.CTkFrame(marco, fg_color="transparent")
+    marco_arl.pack(side="left", fill="both", expand=True, padx=10, pady=10)
 
-    # Campo Nombre (Se usa para filtrar en tiempo real)
-    ctk.CTkLabel(marco, text="Nombre", text_color=COLOR_TEXTO).grid(column=0, row=1, padx=5, pady=5)
-    txtNombre = ctk.CTkEntry(marco, textvariable=nombre, fg_color="white", text_color=COLOR_TEXTO)
-    txtNombre.grid(column=1, row=1)
-    txtNombre.bind("<KeyRelease>", lambda event: llenar_tabla(nombre.get()))  # Filtrar conforme se escribe
+    marco_eps = ctk.CTkFrame(marco, fg_color="transparent")
+    marco_eps.pack(side="right", fill="both", expand=True, padx=10, pady=10)
 
-    # Tabla de EPS
-    tveps = ttk.Treeview(marco, selectmode='browse')
-    tveps["columns"] = ("DNI", "Nombre")
-    tveps.column("#0", width=0, stretch='no')
-    tveps.column("DNI", width=150, anchor='center')
-    tveps.column("Nombre", width=150, anchor='center')
-    tveps.heading("#0", text="")
-    tveps.heading("DNI", text="DNI", anchor='center')
-    tveps.heading("Nombre", text="Nombre", anchor='center')
-    tveps.grid(column=0, row=2, columnspan=4, padx=5, pady=10, sticky="nsew")
-    tveps.bind("<<TreeviewSelect>>", seleccionar)  # Asigna evento de selección
+    # ARL Inputs
+    ctk.CTkLabel(marco_arl, text="Nombre ARL:", text_color=COLOR_TEXTO).grid(row=0, column=0, padx=5, pady=5)
+    ctk.CTkEntry(marco_arl, textvariable=nombre_arl, text_color=COLOR_TEXTO, fg_color="white").grid(row=0, column=1, padx=5, pady=5)
+    ctk.CTkLabel(marco_arl, text="Acción:", text_color=COLOR_TEXTO).grid(row=1, column=0, padx=5, pady=5)
+    ctk.CTkComboBox(marco_arl, variable=ejecutar_accion_arl, fg_color="white", values=["Agregar", "Modificar", "Eliminar"]).grid(row=1, column=1, padx=5, pady=5)
+    ctk.CTkButton(marco_arl, text="Ejecutar", command=ejecutar_accion_arl, fg_color=COLOR_BOTON).grid(row=2, column=0, columnspan=2, pady=10)
 
-    # Botones
-    btnEliminar = ctk.CTkButton(marco, text="Eliminar", command=lambda: eliminar(), fg_color=COLOR_BOTON)
-    btnEliminar.grid(column=1, row=3)
+    # ARL Table + Scrollbar
+    frame_arl_tabla = ctk.CTkFrame(marco_arl)
+    frame_arl_tabla.grid(row=3, column=0, columnspan=2, sticky="nsew", padx=5, pady=5)
 
-    btnNuevo = ctk.CTkButton(marco, text="Guardar", command=lambda: nuevo(), fg_color=COLOR_BOTON)
-    btnNuevo.grid(column=2, row=3)
+    tvARL = ttk.Treeview(frame_arl_tabla, columns=("ID", "Nombre"), show="headings", height=15)
+    tvARL.heading("Nombre", text="Nombre ARL")
+    tvARL.column("ID", width=0, stretch=False)  # Oculta la columna de ID
+    tvARL.column("Nombre", width=250)
+    tvARL.pack(side="left", fill="both", expand=True)
+    tvARL.bind("<<TreeviewSelect>>", seleccionar_arl)
 
-    btnModificar = ctk.CTkButton(marco, text="Modificar", command=actualizar, fg_color=COLOR_BOTON)
-    btnModificar.grid(column=3, row=3)
+    scrollbar_arl = ttk.Scrollbar(frame_arl_tabla, orient="vertical", command=tvARL.yview)
+    tvARL.configure(yscrollcommand=scrollbar_arl.set)
+    scrollbar_arl.pack(side="right", fill="y")
 
-    btnExportar = ctk.CTkButton(marco, text="Exportar a Excel", command=exportar_a_excel_eps, fg_color=COLOR_BOTON)
-    btnExportar.grid(column=2, row=4, pady=10)
+    # EPS Inputs
+    ctk.CTkLabel(marco_eps, text="Nombre EPS:", text_color=COLOR_TEXTO).grid(row=0, column=0, padx=5, pady=5)
+    ctk.CTkEntry(marco_eps, textvariable=nombre_eps, text_color=COLOR_TEXTO, fg_color="white").grid(row=0, column=1, padx=5, pady=5)
+    ctk.CTkLabel(marco_eps, text="Acción:", text_color=COLOR_TEXTO).grid(row=1, column=0, padx=5, pady=5)
+    ctk.CTkComboBox(marco_eps, variable=ejecutar_accion_eps, fg_color="white", values=["Agregar", "Modificar", "Eliminar"]).grid(row=1, column=1, padx=5, pady=5)
+    ctk.CTkButton(marco_eps, text="Ejecutar", command=ejecutar_accion_eps, fg_color=COLOR_BOTON).grid(row=2, column=0, columnspan=2, pady=10)
 
-    btnImportar = ctk.CTkButton(marco, text="Importar de Excel", command=importar_de_excel_eps, fg_color=COLOR_BOTON)
-    btnImportar.grid(column=3, row=4, pady=10)
+    # EPS Table + Scrollbar
+    frame_eps_tabla = ctk.CTkFrame(marco_eps)
+    frame_eps_tabla.grid(row=3, column=0, columnspan=2, sticky="nsew", padx=5, pady=5)
 
-    def eliminar():
-        """Elimina el registro seleccionado."""
-        seleccion = tveps.selection()
-        if seleccion:
-            id_real = tveps.item(seleccion[0], "values")[0]
-            sql = "DELETE FROM eps WHERE id=%s"
-            db.cursor.execute(sql, (id_real,))
-            db.connection.commit()
-            tveps.delete(seleccion[0])
-            limpiar()
+    tvEPS = ttk.Treeview(frame_eps_tabla, columns=("ID", "Nombre"), show="headings", height=15)
+    tvEPS.heading("Nombre", text="Nombre EPS")
+    tvEPS.column("ID", width=0, stretch=False)  # Oculta la columna de ID
+    tvEPS.column("Nombre", width=250)
+    tvEPS.pack(side="left", fill="both", expand=True)
+    tvEPS.bind("<<TreeviewSelect>>", seleccionar_eps)
 
-    def nuevo():
-        """Guarda un nuevo registro."""
-        if validar():
-            sql = "INSERT INTO eps (id, nombreEPS) VALUES (%s, %s)"
-            db.cursor.execute(sql, (dni.get(), nombre.get()))
-            db.connection.commit()
-            llenar_tabla()
-            limpiar()
-        else:
-            print("Los campos no deben estar vacíos.")  # Mensaje interno
+    scrollbar_eps = ttk.Scrollbar(frame_eps_tabla, orient="vertical", command=tvEPS.yview)
+    tvEPS.configure(yscrollcommand=scrollbar_eps.set)
+    scrollbar_eps.pack(side="right", fill="y")
 
-    def validar():
-        """Valida que los campos no estén vacíos."""
-        return len(dni.get().strip()) > 0 and len(nombre.get().strip()) > 0
-
-    def limpiar():
-        """Limpia los campos de entrada."""
-        dni.set("")
-        nombre.set("")
-
-    # Llenar la tabla al iniciar
-    llenar_tabla("")
-
-######################################### Pantalla ARL #########################################################
-# Función para mostrar ARL
-def mostrar_arl(frame):
-    db = DataBase()
-    dni = ctk.StringVar()
-    nombre = ctk.StringVar()
-
-    def seleccionar(event):
-        seleccion = tvEstudiantes.selection()
-        if seleccion:
-            valores = tvEstudiantes.item(seleccion[0], "values")
-            dni.set(valores[0])
-            nombre.set(valores[1])
-
-    def limpiar():
-        dni.set("")
-        nombre.set("")
-
-    def llenar_tabla():
-        tvEstudiantes.delete(*tvEstudiantes.get_children())
-        for fila in db.obtener_datos("SELECT id, nombreARL FROM arl"):
-            tvEstudiantes.insert("", "end", values=fila)
-
-    def nuevo():
-        if dni.get() and nombre.get():
-            db.ejecutar_consulta("INSERT INTO arl (id, nombreARL) VALUES (%s, %s)", (dni.get(), nombre.get()))
-            llenar_tabla()
-            limpiar()
-
-    def eliminar():
-        seleccion = tvEstudiantes.selection()
-        if seleccion:
-            id_seleccionado = tvEstudiantes.item(seleccion[0], "values")[0]
-            db.ejecutar_consulta("DELETE FROM arl WHERE id=%s", (id_seleccionado,))
-            llenar_tabla()
-
-    def exportar_a_excel_arl():
-        try:
-            filas = db.obtener_datos("SELECT id, nombreARL FROM arl")
-            if filas:
-                filepath = filedialog.asksaveasfilename(defaultextension=".xlsx",
-                                                        filetypes=[("Excel files", "*.xlsx"), ("All files", "*.*")])
-                if filepath:
-                    pd.DataFrame(filas, columns=['ID', 'Nombre']).to_excel(filepath, index=False)
-                    messagebox.showinfo("Exportación Exitosa", f"Datos exportados a {filepath}")
-            else:
-                messagebox.showwarning("Sin Datos", "No hay datos para exportar")
-        except Exception as e:
-            messagebox.showerror("Error", f"Ocurrió un error durante la exportación: {e}")
-
-    def importar_desde_excel_arl():
-        try:
-            filepath = filedialog.askopenfilename(filetypes=[("Excel files", "*.xlsx"), ("All files", "*.*")])
-            if filepath:
-                df = pd.read_excel(filepath)
-                if "ID" in df.columns and "Nombre" in df.columns:
-                    for _, row in df.iterrows():
-                        if not db.obtener_datos(f"SELECT id FROM arl WHERE id = {row['ID']}"):
-                            db.ejecutar_consulta("INSERT INTO arl (id, nombreARL) VALUES (%s, %s)", (row["ID"], row["Nombre"]))
-                    messagebox.showinfo("Importación Exitosa", "Datos importados correctamente")
-                else:
-                    messagebox.showerror("Error", "Formato incorrecto en el archivo")
-        except Exception as e:
-            messagebox.showerror("Error", f"Ocurrió un error durante la importación: {e}")
-
-    # Marco para el contenido principal
-    contenido_marco = ctk.CTkFrame(frame, fg_color="transparent")
-    contenido_marco.pack(fill="both", expand=True, padx=20, pady=20)
-
-    # UI del formulario ARL
-    ctk.CTkLabel(contenido_marco, text="DNI",text_color=COLOR_TEXTO).grid(row=0, column=0, padx=5, pady=5, sticky="w")
-    ctk.CTkEntry(contenido_marco, textvariable=dni,fg_color="white", text_color=COLOR_TEXTO).grid(row=0, column=1, padx=5, pady=5, sticky="ew")
-
-    ctk.CTkLabel(contenido_marco, text="Nombre",text_color=COLOR_TEXTO).grid(row=1, column=0, padx=5, pady=5, sticky="w")
-    ctk.CTkEntry(contenido_marco, textvariable=nombre,fg_color="white", text_color=COLOR_TEXTO).grid(row=1, column=1, padx=5, pady=5, sticky="ew")
-
-    ctk.CTkButton(contenido_marco, text="Guardar", command=nuevo, fg_color=COLOR_BOTON).grid(row=2, column=0, pady=10, sticky="ew")
-    ctk.CTkButton(contenido_marco, text="Eliminar", command=eliminar,fg_color=COLOR_BOTON).grid(row=2, column=1, pady=10, sticky="ew")
-
-    tvEstudiantes = ttk.Treeview(contenido_marco, columns=("DNI", "Nombre"), show="headings")
-    tvEstudiantes.heading("DNI", text="DNI")
-    tvEstudiantes.heading("Nombre", text="Nombre")
-    tvEstudiantes.grid(row=3, column=0, columnspan=3, padx=5, pady=5, sticky="nsew")
-    tvEstudiantes.bind("<<TreeviewSelect>>", seleccionar)
-
-    # Configurar la expansión de la fila del Treeview
-    contenido_marco.grid_rowconfigure(3, weight=1)
-    contenido_marco.grid_columnconfigure(1, weight=1)
-
-    # Botones de exportar e importar
-    ctk.CTkButton(contenido_marco, text="Exportar a Excel", command=exportar_a_excel_arl, fg_color=COLOR_BOTON).grid(row=4, column=0, pady=10, sticky="ew")
-    ctk.CTkButton(contenido_marco, text="Importar desde Excel", command=importar_desde_excel_arl, fg_color=COLOR_BOTON).grid(row=4, column=1, pady=10, sticky="ew")
-
-    llenar_tabla()
+    llenar_tabla_arl()
+    llenar_tabla_eps()
 
 ####################################### Pantalla de banco #####################################################
 def mostrar_bancos(frame):
-    global db, modificar, page_number, records_per_page
-    db = DataBase()
-    modificar = False
-    page_number = 1
-    records_per_page = 10
+    nombre_banco = ctk.StringVar()
+    tipo_cuenta = ctk.StringVar()
+    accion = ctk.StringVar(value="Agregar")
+    banco_id = None  # Para almacenar el ID del banco seleccionado
 
-    # Variables de filtro y registro
-    banco_seleccionado = ctk.StringVar()
-    tipo_cuenta_seleccionada = ctk.StringVar()
-    dni = ctk.StringVar()
-    nombre = ctk.StringVar()
-    tipoCuenta = ctk.StringVar()
+    def limpiar():
+        nonlocal banco_id
+        banco_id = None
+        nombre_banco.set("")
+        tipo_cuenta.set("")
+        accion.set("Agregar")
 
-    # Función para seleccionar elementos de la tabla
-    def seleccionar(event):
-        seleccion = tvBancos.selection()
-        if seleccion:
-            id = seleccion[0]
-            valores = tvBancos.item(id, "values")
-            dni.set(valores[0])
-            nombre.set(valores[1])
-            tipoCuenta.set(valores[2])
-            txtID.configure(state='disabled')
-
-    # Función para cargar los datos de tipo de cuenta y bancos
-    def cargar_tipo_cuenta():
+    def llenar_tabla():
+        tvBancos.delete(*tvBancos.get_children())
         try:
-            db.cursor.execute("SELECT nombreTipoCuenta FROM tipodecuenta")
-            return [fila[0] for fila in db.cursor.fetchall()]
-        except Exception as e:
-            print(f"Error al cargar los tipos de cuenta: {e}")
-            return []
-
-    def cargar_bancos():
-        try:
-            db.cursor.execute("SELECT DISTINCT nombreBanco FROM banco")
-            return [fila[0] for fila in db.cursor.fetchall()]
-        except Exception as e:
-            print(f"Error al cargar los bancos: {e}")
-            return []
-
-    # Función para vaciar la tabla
-    def vaciar_tabla():
-        for fila in tvBancos.get_children():
-            tvBancos.delete(fila)
-
-    # Función para llenar la tabla con datos
-    def llenar_tabla(filtro_banco=None, filtro_tipo_cuenta=None):
-        vaciar_tabla()
-        try:
-            offset = (page_number - 1) * records_per_page
-            sql = """
-            SELECT b.id, b.nombreBanco, tc.nombreTipoCuenta
-            FROM banco b
-            JOIN tipodecuenta tc ON b.tipoCuenta = tc.id
-            """
-            params = []
-            if filtro_banco:
-                sql += " WHERE b.nombreBanco = %s"
-                params.append(filtro_banco)
-            if filtro_tipo_cuenta:
-                sql += " AND tc.nombreTipoCuenta = %s" if filtro_banco else " WHERE tc.nombreTipoCuenta = %s"
-                params.append(filtro_tipo_cuenta)
-            sql += " LIMIT %s OFFSET %s"
-            params.extend([records_per_page, offset])
-            db.cursor.execute(sql, tuple(params))
+            db.cursor.execute("""
+                SELECT b.id, b.nombreBanco, tc.nombreTipoCuenta
+                FROM banco b
+                JOIN tipodecuenta tc ON b.tipoCuenta = tc.id
+            """)
             for fila in db.cursor.fetchall():
-                tvBancos.insert("", 'end', fila[0], text=fila[0], values=(fila[0], fila[1], fila[2]))
+                tvBancos.insert("", "end", values=(fila[0], fila[1], fila[2]))
         except Exception as e:
             print(f"Error al llenar la tabla: {e}")
 
-    def filtrar_registros():
-        llenar_tabla(banco_seleccionado.get(), tipo_cuenta_seleccionada.get())
-
-    def mostrar_todos():
-        banco_seleccionado.set("")
-        tipo_cuenta_seleccionada.set("")
-        llenar_tabla()
-
-    def limpiar():
-        dni.set("")
-        nombre.set("")
-        tipoCuenta.set("")
-        txtID.configure(state='normal')
-
-    def eliminar():
+    def seleccionar(event):
+        nonlocal banco_id
         seleccion = tvBancos.selection()
         if seleccion:
-            try:
-                id = seleccion[0]
-                db.cursor.execute("DELETE FROM banco WHERE id=%s", (id,))
-                db.connection.commit()
-                lblMensaje.configure(text="Se ha eliminado el registro correctamente", fg_color="green")
-                llenar_tabla()
-                limpiar()
-            except Exception as e:
-                print(f"Error al eliminar: {e}")
-                lblMensaje.configure(text="Error al eliminar el registro.", fg_color="red")
-        else:
-            lblMensaje.configure(text="Seleccione un registro para eliminar", fg_color="red")
+            valores = tvBancos.item(seleccion[0], "values")
+            if valores:
+                banco_id = valores[0]  # Guardamos el ID del banco seleccionado
+                nombre_banco.set(valores[1])
+                tipo_cuenta.set(valores[2])
+                accion.set("Modificar")
 
-    # Crear un nuevo marco para la sección de Bancos
-    for widget in frame.winfo_children():
-        widget.destroy()
-    
+    def obtener_o_crear_tipo_cuenta(nombre_tipo):
+        """Verifica si el tipo de cuenta existe; si no, lo crea."""
+        db.cursor.execute("SELECT id FROM tipodecuenta WHERE nombreTipoCuenta = %s", (nombre_tipo,))
+        resultado = db.cursor.fetchone()
+        if resultado:
+            return resultado[0]
+        else:
+            db.cursor.execute("INSERT INTO tipodecuenta (nombreTipoCuenta) VALUES (%s)", (nombre_tipo,))
+            db.connection.commit()
+            return db.cursor.lastrowid  # Retorna el nuevo ID insertado
+
+    def ejecutar_accion():
+        nonlocal banco_id
+        opcion = accion.get().strip()
+        
+        if not nombre_banco.get() or not tipo_cuenta.get():
+            return
+
+        # Obtener o crear el tipo de cuenta
+        id_tipo_cuenta = obtener_o_crear_tipo_cuenta(tipo_cuenta.get())
+
+        if opcion == "Agregar":
+            db.ejecutar_consulta("INSERT INTO banco (nombreBanco, tipoCuenta) VALUES (%s, %s)", (nombre_banco.get(), id_tipo_cuenta))
+        
+        elif opcion == "Modificar" and banco_id:
+            db.ejecutar_consulta("UPDATE banco SET nombreBanco=%s, tipoCuenta=%s WHERE id=%s", (nombre_banco.get(), id_tipo_cuenta, banco_id))
+        
+        elif opcion == "Eliminar" and banco_id:
+            db.ejecutar_consulta("DELETE FROM banco WHERE id=%s", (banco_id,))
+
+        llenar_tabla()
+        limpiar()
+
     marco_bancos = ctk.CTkFrame(frame, fg_color="transparent")
     marco_bancos.pack(fill="both", expand=True, padx=20, pady=20)
 
-    # Widgets dentro del marco
-    ctk.CTkLabel(marco_bancos, text="ID Banco", text_color=COLOR_TEXTO).grid(row=0, column=0, padx=5, pady=5, sticky="w")
-    txtID = ctk.CTkEntry(marco_bancos, textvariable=dni, fg_color="white", text_color=COLOR_TEXTO)
-    txtID.grid(row=0, column=1, padx=5, pady=5, sticky="ew")
+    # Campo de entrada para el nombre del banco
+    ctk.CTkLabel(marco_bancos, text="Nombre del Banco", text_color=COLOR_TEXTO).grid(row=0, column=0, padx=5, pady=5, sticky="w")
+    ctk.CTkEntry(marco_bancos, textvariable=nombre_banco, fg_color="white", text_color=COLOR_TEXTO).grid(row=0, column=1, padx=5, pady=5, sticky="ew")
 
-    lblMensaje = ctk.CTkLabel(marco_bancos, text="", fg_color="transparent", text_color=COLOR_TEXTO)
-    lblMensaje.grid(row=3, column=0, columnspan=2, pady=10)
+    # Campo de entrada para el tipo de cuenta (ya no es un combobox)
+    ctk.CTkLabel(marco_bancos, text="Tipo de Cuenta", text_color=COLOR_TEXTO).grid(row=1, column=0, padx=5, pady=5, sticky="w")
+    ctk.CTkEntry(marco_bancos, textvariable=tipo_cuenta, fg_color="white", text_color=COLOR_TEXTO).grid(row=1, column=1, padx=5, pady=5, sticky="ew")
 
-    btnEliminar = ctk.CTkButton(marco_bancos, text="Eliminar", command=eliminar, fg_color=COLOR_BOTON)
-    btnEliminar.grid(row=5, column=0, pady=10, sticky="ew")
+    # Campo de selección para la acción
+    ctk.CTkLabel(marco_bancos, text="Acción", text_color=COLOR_TEXTO).grid(row=2, column=0, padx=5, pady=5, sticky="w")
+    ctk.CTkComboBox(marco_bancos, variable=ejecutar_accion, fg_color="white", values=["Agregar", "Modificar", "Eliminar"]).grid(row=2, column=1, padx=5, pady=5, sticky="ew")
 
-    # Treeview con encabezados
-    tvBancos = ttk.Treeview(marco_bancos, columns=("ID", "Nombre", "Tipo de Cuenta"), show="headings")
-    tvBancos.heading("ID", text="ID")
+    # Botón de ejecución
+    ctk.CTkButton(marco_bancos, text="Ejecutar", command=ejecutar_accion, fg_color=COLOR_BOTON).grid(row=3, column=0, columnspan=2, pady=10, sticky="ew")
+
+    # Tabla (Treeview) con "Nombre" y "Tipo de Cuenta"
+    frame_tabla = ctk.CTkFrame(marco_bancos)
+    frame_tabla.grid(row=4, column=0, columnspan=2, sticky="nsew", padx=5, pady=5)
+
+    tvBancos = ctk.CTkTabview(frame_tabla, columns=("ID", "Nombre", "Tipo de Cuenta"), show="headings", height=10)
     tvBancos.heading("Nombre", text="Nombre")
     tvBancos.heading("Tipo de Cuenta", text="Tipo de Cuenta")
-    tvBancos.grid(row=9, column=0, columnspan=2, padx=5, pady=5, sticky="nsew")
+
+    # Ocultar la columna de ID
+    tvBancos.column("ID", width=0, stretch=False)
+    tvBancos.column("Nombre", width=200)
+    tvBancos.column("Tipo de Cuenta", width=150)
+
+    tvBancos.pack(side="left", fill="both", expand=True)
     tvBancos.bind("<<TreeviewSelect>>", seleccionar)
 
-    # Configurar expansión de la tabla
-    marco_bancos.grid_rowconfigure(9, weight=1)
-    marco_bancos.grid_columnconfigure(1, weight=1)
+    scrollbar = ttk.Scrollbar(frame_tabla, orient="vertical", command=tvBancos.yview)
+    tvBancos.configure(yscrollcommand=scrollbar.set)
+    scrollbar.pack(side="right", fill="y")
 
     llenar_tabla()
 
 ############################################# Pantalla Ciudad ####################################################
-def mostrar_ciudad(frame):
-    global db, page_number, records_per_page, total_records
-    db = DataBase()
-    modificar = False
-    dni = ctk.StringVar()
-    nombre = ctk.StringVar()
-    filtro_id = ctk.StringVar()
-    filtro_nombre = ctk.StringVar()
+def mostrar_ciudades_departamentos(frame, db):
+    nombre_ciudad = ctk.StringVar()
+    accion_ciudad = ctk.StringVar(value="Agregar")
+    ciudad_id = None
 
-    # Inicializar variables de paginación
-    page_number = 1
-    records_per_page = 10
-    total_records = 0
+    nombre_departamento = ctk.StringVar()
+    accion_departamento = ctk.StringVar(value="Agregar")
+    departamento_id = None
 
-    def seleccionar(event):
-        seleccion = tvciudad.selection()
+    def seleccionar_ciudad(event):
+        nonlocal ciudad_id
+        seleccion = tvCiudad.selection()
         if seleccion:
-            id = seleccion[0]
-            valores = tvciudad.item(id, "values")
-            dni.set(valores[0])
-            nombre.set(valores[1])
+            valores = tvCiudad.item(seleccion[0], "values")
+            if valores:
+                ciudad_id = valores[0]
+                nombre_ciudad.set(valores[1])
 
-    def vaciar_tabla():
-        filas = tvciudad.get_children()
-        for fila in filas:
-            tvciudad.delete(fila)
-
-    def llenar_tabla():
-        vaciar_tabla()
-        global total_records
-        offset = (page_number - 1) * records_per_page
-        try:
-            sql_count = "SELECT COUNT(*) FROM ciudad WHERE 1=1"
-            sql = "SELECT id, nombreCiudad FROM ciudad WHERE 1=1"
-            parametros = []
-
-            if filtro_id.get():
-                sql_count += " AND id LIKE %s"
-                sql += " AND id LIKE %s"
-                parametros.append(f"%{filtro_id.get()}%")
-
-            if filtro_nombre.get():
-                sql_count += " AND nombreCiudad LIKE %s"
-                sql += " AND nombreCiudad LIKE %s"
-                parametros.append(f"%{filtro_nombre.get()}%")
-
-            db.cursor.execute(sql_count, tuple(parametros))
-            total_records = db.cursor.fetchone()[0]
-
-            sql += " LIMIT %s OFFSET %s"
-            parametros.extend([records_per_page, offset])
-            db.cursor.execute(sql, tuple(parametros))
-            filas = db.cursor.fetchall()
-
-            for fila in filas:
-                tvciudad.insert("", 'end', iid=fila[0], text=fila[0], values=(fila[0], fila[1]))
-
-            btnPrev.configure(state='normal' if page_number > 1 else 'disabled')
-            btnNext.configure(state='normal' if page_number * records_per_page < total_records else 'disabled')
-        except Exception as e:
-            lblMensaje.configure(text=f"Error al llenar la tabla: {e}", fg_color="red")
-
-    def validar():
-        return len(nombre.get()) > 0
-
-    def prev_page():
-        global page_number
-        if page_number > 1:
-            page_number -= 1
-            llenar_tabla()
-
-    def next_page():
-        global page_number
-        if page_number * records_per_page < total_records:
-            page_number += 1
-            llenar_tabla()
-
-    def limpiar():
-        dni.set("")
-        nombre.set("")
-
-    def eliminar():
-        seleccion = tvciudad.selection()
+    def seleccionar_departamento(event):
+        nonlocal departamento_id
+        seleccion = tvDepartamento.selection()
         if seleccion:
-            id = seleccion[0]
-            sql = "DELETE FROM ciudad WHERE id=%s"
-            db.cursor.execute(sql, (id,))
-            db.connection.commit()
-            tvciudad.delete(id)
-            lblMensaje.configure(text="Registro eliminado", fg_color="green")
-            limpiar()
-            llenar_tabla()
-        else:
-            lblMensaje.configure(text="Seleccione un registro para eliminar", fg_color="red")
+            valores = tvDepartamento.item(seleccion[0], "values")
+            if valores:
+                departamento_id = valores[0]
+                nombre_departamento.set(valores[1])
 
-    def nuevo():
-        if validar():
-            val = (nombre.get(),)
-            sql = "INSERT INTO ciudad (nombreCiudad) VALUES (%s)"
-            db.cursor.execute(sql, val)
-            db.connection.commit()
-            lblMensaje.configure(text="Registro guardado", fg_color="green")
-            llenar_tabla()
-            limpiar()
-        else:
-            lblMensaje.configure(text="Campos no deben estar vacíos", fg_color="red")
+    def llenar_tabla_ciudad():
+        tvCiudad.delete(*tvCiudad.get_children())
+        for fila in db.obtener_datos("SELECT id, nombreCiudad FROM ciudad"):
+            tvCiudad.insert("", "end", values=fila)
 
-    def actualizar():
-        seleccion = tvciudad.selection()
-        if seleccion:
-            id = seleccion[0]
-            val = (nombre.get(), id)
-            sql = "UPDATE ciudad SET nombreCiudad=%s WHERE id=%s"
-            db.cursor.execute(sql, val)
-            db.connection.commit()
-            lblMensaje.configure(text="Registro actualizado", fg_color="green")
-            llenar_tabla()
-            limpiar()
-        else:
-            lblMensaje.configure(text="Seleccione un registro", fg_color="red")
-        
-    # Crear el marco principal para la pantalla de ciudad
-    marco_ciudad = ctk.CTkFrame(frame, fg_color="transparent")
-    marco_ciudad.pack(fill="both", expand=True, padx=20, pady=20)
+    def llenar_tabla_departamento():
+        tvDepartamento.delete(*tvDepartamento.get_children())
+        for fila in db.obtener_datos("SELECT id, nombreDepartamento FROM departamentos"):
+            tvDepartamento.insert("", "end", values=fila)
 
-    # Crear los widgets dentro del marco de ciudad
-    ctk.CTkLabel(marco_ciudad, text="Agregar Ciudad", text_color=COLOR_TEXTO).grid(row=0, column=0, padx=5, pady=5, sticky="w")
-    txtNombre = ctk.CTkEntry(marco_ciudad, textvariable=nombre, fg_color="white", text_color=COLOR_TEXTO)
-    txtNombre.grid(row=0, column=1, padx=5, pady=5, sticky="ew")
+    def ejecutar_accion_ciudad():
+        if accion_ciudad.get() == "Agregar" and nombre_ciudad.get().strip():
+            db.ejecutar_consulta("INSERT INTO ciudad (nombreCiudad) VALUES (%s)", (nombre_ciudad.get(),))
+        elif accion_ciudad.get() == "Modificar" and ciudad_id:
+            db.ejecutar_consulta("UPDATE ciudad SET nombreCiudad=%s WHERE id=%s", (nombre_ciudad.get(), ciudad_id))
+        elif accion_ciudad.get() == "Eliminar" and ciudad_id:
+            db.ejecutar_consulta("DELETE FROM ciudad WHERE id=%s", (ciudad_id,))
+        llenar_tabla_ciudad()
 
-    ctk.CTkLabel(marco_ciudad, text="Buscar Ciudad", text_color=COLOR_TEXTO).grid(row=2, column=0, padx=5, pady=5, sticky="w")
-    txtNombreCiudad = ctk.CTkEntry(marco_ciudad, textvariable=filtro_nombre, fg_color="white", text_color=COLOR_TEXTO)
-    txtNombreCiudad.grid(row=2, column=1, padx=5, pady=5, sticky="ew")
-    txtNombreCiudad.bind("<KeyRelease>", lambda event: llenar_tabla())
+    def ejecutar_accion_departamento():
+        if accion_departamento.get() == "Agregar" and nombre_departamento.get().strip():
+            db.ejecutar_consulta("INSERT INTO departamentos (nombreDepartamento) VALUES (%s)", (nombre_departamento.get(),))
+        elif accion_departamento.get() == "Modificar" and departamento_id:
+            db.ejecutar_consulta("UPDATE departamentos SET nombreDepartamento=%s WHERE id=%s", (nombre_departamento.get(), departamento_id))
+        elif accion_departamento.get() == "Eliminar" and departamento_id:
+            db.ejecutar_consulta("DELETE FROM departamentos WHERE id=%s", (departamento_id,))
+        llenar_tabla_departamento()
 
-    lblMensaje = ctk.CTkLabel(marco_ciudad, text="", fg_color="transparent", text_color=COLOR_TEXTO)
-    lblMensaje.grid(row=3, column=0, columnspan=2, pady=10)
+    marco = ctk.CTkFrame(frame, fg_color="transparent")
+    marco.pack(fill="both", expand=True, padx=20, pady=20)
 
-    # Botones de acciones
-    btnNuevo = ctk.CTkButton(marco_ciudad, text="Nuevo", command=nuevo, fg_color=COLOR_BOTON)
-    btnNuevo.grid(row=4, column=0, pady=10, sticky="ew")
+    marco_ciudad = ctk.CTkFrame(marco, fg_color="transparent")
+    marco_ciudad.pack(side="left", fill="both", expand=True, padx=10, pady=10)
 
-    btnModificar = ctk.CTkButton(marco_ciudad, text="Modificar", command=actualizar, fg_color=COLOR_BOTON)
-    btnModificar.grid(row=4, column=1, pady=10, sticky="ew")
+    marco_departamento = ctk.CTkFrame(marco, fg_color="transparent")
+    marco_departamento.pack(side="right", fill="both", expand=True, padx=10, pady=10)
 
-    btnEliminar = ctk.CTkButton(marco_ciudad, text="Eliminar", command=eliminar, fg_color=COLOR_BOTON)
-    btnEliminar.grid(row=5, column=0, pady=10, sticky="ew")
+    # Ciudad Inputs
+    ctk.CTkLabel(marco_ciudad, text="Nombre Ciudad:", text_color=COLOR_TEXTO).grid(row=0, column=0, padx=5, pady=5)
+    ctk.CTkEntry(marco_ciudad, textvariable=nombre_ciudad, text_color=COLOR_TEXTO, fg_color="white").grid(row=0, column=1, padx=5, pady=5)
+    ctk.CTkLabel(marco_ciudad, text="Acción:", text_color=COLOR_TEXTO).grid(row=1, column=0, padx=5, pady=5)
+    ctk.CTkComboBox(marco_ciudad, variable=ejecutar_accion_ciudad, fg_color="white", values=["Agregar", "Modificar", "Eliminar"]).grid(row=1, column=1, padx=5, pady=5)
+    ctk.CTkButton(marco_ciudad, text="Ejecutar", command=ejecutar_accion_ciudad, fg_color=COLOR_BOTON).grid(row=2, column=0, columnspan=2, pady=10)
 
-    btnMostrarTodos = ctk.CTkButton(marco_ciudad, text="Mostrar Todos", command=llenar_tabla, fg_color=COLOR_BOTON)
-    btnMostrarTodos.grid(row=5, column=1, pady=10, sticky="ew")
+    # Ciudad Table + Scrollbar
+    frame_ciudad_tabla = ctk.CTkFrame(marco_ciudad)
+    frame_ciudad_tabla.grid(row=3, column=0, columnspan=2, sticky="nsew", padx=5, pady=5)
 
-    # Tabla de datos
-    tvciudad = ttk.Treeview(marco_ciudad, columns=("ID Ciudad", "Nombre Ciudad"), show="headings")
-    tvciudad.heading("ID Ciudad", text="ID Ciudad")
-    tvciudad.heading("Nombre Ciudad", text="Nombre Ciudad")
-    tvciudad.grid(row=6, column=0, columnspan=2, padx=5, pady=5, sticky="nsew")
-    tvciudad.bind("<<TreeviewSelect>>", seleccionar)
+    tvCiudad = ttk.Treeview(frame_ciudad_tabla, columns=("ID", "Nombre"), show="headings", height=15)
+    tvCiudad.heading("Nombre", text="Nombre Ciudad")
+    tvCiudad.column("ID", width=0, stretch=False)
+    tvCiudad.column("Nombre", width=250)
+    tvCiudad.pack(side="left", fill="both", expand=True)
+    tvCiudad.bind("<<TreeviewSelect>>", seleccionar_ciudad)
 
-    # Botones de paginación
-    btnPrev = ctk.CTkButton(marco_ciudad, text="<< Anterior", command=prev_page, fg_color=COLOR_BOTON)
-    btnPrev.grid(row=7, column=0, pady=10, sticky="ew")
+    scrollbar_ciudad = ttk.Scrollbar(frame_ciudad_tabla, orient="vertical", command=tvCiudad.yview)
+    tvCiudad.configure(yscrollcommand=scrollbar_ciudad.set)
+    scrollbar_ciudad.pack(side="right", fill="y")
 
-    btnNext = ctk.CTkButton(marco_ciudad, text="Siguiente >>", command=next_page, fg_color=COLOR_BOTON)
-    btnNext.grid(row=7, column=1, pady=10, sticky="ew")
+    # Departamento Inputs
+    ctk.CTkLabel(marco_departamento, text="Nombre Departamento:", text_color="black").grid(row=0, column=0, padx=5, pady=5)
+    ctk.CTkEntry(marco_departamento, textvariable=nombre_departamento, text_color="black", fg_color="white").grid(row=0, column=1, padx=5, pady=5)
+    ctk.CTkLabel(marco_departamento, text="Acción:", text_color="black").grid(row=1, column=0, padx=5, pady=5)
+    ctk.CTkComboBox(marco_departamento, variable=ejecutar_accion_departamento, fg_color="white", values=["Agregar", "Modificar", "Eliminar"]).grid(row=1, column=1, padx=5, pady=5)
+    ctk.CTkButton(marco_departamento, text="Ejecutar", command=ejecutar_accion_departamento, fg_color=COLOR_BOTON).grid(row=2, column=0, columnspan=2, pady=10)
 
-    # Configurar la expansión de la fila del Treeview
-    marco_ciudad.grid_rowconfigure(6, weight=1)
-    marco_ciudad.grid_columnconfigure(1, weight=1)
+    # Departamento Table + Scrollbar
+    frame_departamento_tabla = ctk.CTkFrame(marco_departamento)
+    frame_departamento_tabla.grid(row=3, column=0, columnspan=2, sticky="nsew", padx=5, pady=5)
 
-    # Llenar la tabla inicialmente
-    llenar_tabla()
+    tvDepartamento = ttk.Treeview(frame_departamento_tabla, columns=("ID", "Nombre"), show="headings", height=15)
+    tvDepartamento.heading("Nombre", text="Nombre Departamento")
+    tvDepartamento.column("ID", width=0, stretch=False)
+    tvDepartamento.column("Nombre", width=250)
+    tvDepartamento.pack(side="left", fill="both", expand=True)
+    tvDepartamento.bind("<<TreeviewSelect>>", seleccionar_departamento)
+
+    scrollbar_departamento = ttk.Scrollbar(frame_departamento_tabla, orient="vertical", command=tvDepartamento.yview)
+    tvDepartamento.configure(yscrollcommand=scrollbar_departamento.set)
+    scrollbar_departamento.pack(side="right", fill="y")
+
+    llenar_tabla_ciudad()
+    llenar_tabla_departamento()
 
 ########################################### Pantalla Cargo #####################################################
-def mostrar_cargo(frame):
-    global db, records_per_page, page_number, total_records
+def mostrar_cargo(frame,db):
+    global records_per_page, page_number
     
     db = DataBase()
     records_per_page = 10
     page_number = 1
-    total_records = 0
-    
-    # Variables de control
-    id_cargo = ctk.StringVar()
-    nombre_cargo = ctk.StringVar()
-    id_jefe = ctk.StringVar()
-    filtro_nombre_cargo = ctk.StringVar()
-    filtro_jefe = ctk.StringVar()
-    
-    def cargar_nombres_cargo():
-        db.cursor.execute("SELECT DISTINCT nombreCargo FROM cargo")
-        return [fila[0] for fila in db.cursor.fetchall()]
-    
-    def cargar_jefes():
-        db.cursor.execute("SELECT id, nombreJefe FROM jefe")
-        return db.cursor.fetchall()
-    
-    def obtener_nombre_jefe(id_jefe):
-        db.cursor.execute("SELECT nombreJefe FROM jefe WHERE id=%s", (id_jefe,))
-        result = db.cursor.fetchone()
-        return result[0] if result else "Desconocido"
 
-    def obtener_id_jefe(nombre_jefe):
-        db.cursor.execute("SELECT id FROM jefe WHERE nombreJefe=%s", (nombre_jefe,))
-        result = db.cursor.fetchone()
-        return result[0] if result else None
-    
+    # Variables de control
+    nombre_cargo = ctk.StringVar()
+    nombre_jefe = ctk.StringVar()
+    accion = ctk.StringVar(value="Agregar")  # Opción por defecto
+
     def seleccionar(event):
         seleccion = tvCargos.selection()
         if seleccion:
-            id = seleccion[0]
-            valores = tvCargos.item(id, "values")
-            id_cargo.set(valores[0])
-            nombre_cargo.set(valores[1])
-            id_jefe.set(obtener_id_jefe(valores[2]))
-    
+            valores = tvCargos.item(seleccion[0], "values")
+            nombre_cargo.set(valores[0])
+            nombre_jefe.set(valores[1])
+
     def limpiar():
-        id_cargo.set("")
         nombre_cargo.set("")
-        id_jefe.set("")
-        comboJefe.set("")
+        nombre_jefe.set("")
 
     def vaciar_tabla():
         for fila in tvCargos.get_children():
             tvCargos.delete(fila)
-    
+
     def llenar_tabla():
         vaciar_tabla()
-        offset = (page_number - 1) * records_per_page
-        
-        sql = """
-        SELECT c.id, c.nombreCargo, j.nombreJefe
-        FROM cargo c
-        JOIN jefe j ON c.idJefe = j.id
-        WHERE 1=1
-        """
-        valores = []
-
-        if filtro_nombre_cargo.get():
-            sql += " AND c.nombreCargo = %s"
-            valores.append(filtro_nombre_cargo.get())
-        if filtro_jefe.get():
-            sql += " AND j.nombreJefe = %s"
-            valores.append(filtro_jefe.get())
-        
-        sql += " LIMIT %s OFFSET %s"
-        valores.extend([records_per_page, offset])
-        
-        db.cursor.execute(sql, tuple(valores))
+        sql = "SELECT c.nombreCargo, j.nombreJefe FROM cargo c JOIN jefe j ON c.idJefe = j.id"
+        db.cursor.execute(sql)
         for fila in db.cursor.fetchall():
-            tvCargos.insert("", 'end', fila[0], text=fila[0], values=(fila[0], fila[1], fila[2]))
-    
-    def validar():
-        return len(nombre_cargo.get()) > 0
+            tvCargos.insert("", "end", values=(fila[0], fila[1]))
 
-    def nuevo():
-        if validar():
-            sql = "INSERT INTO cargo (id, nombreCargo, idJefe) VALUES (%s, %s, %s)"
-            db.cursor.execute(sql, (id_cargo.get(), nombre_cargo.get(), id_jefe.get()))
-            db.connection.commit()
-            llenar_tabla()
-            limpiar()
-    
-    def actualizar():
-        seleccion = tvCargos.selection()
-        if seleccion:
-            id = seleccion[0]
-            sql = "UPDATE cargo SET nombreCargo=%s, idJefe=%s WHERE id=%s"
-            db.cursor.execute(sql, (nombre_cargo.get(), id_jefe.get(), id))
-            db.connection.commit()
-            llenar_tabla()
-            limpiar()
-    
-    def eliminar():
-        seleccion = tvCargos.selection()
-        if seleccion:
-            id = seleccion[0]
-            db.cursor.execute("DELETE FROM cargo WHERE id=%s", (id,))
-            db.connection.commit()
-            tvCargos.delete(id)
-            limpiar()
-    
-    # Crear el marco principal para la pantalla de cargos
+    def ejecutar_accion():
+        seleccionada = accion.get()
+
+        if seleccionada == "Agregar":
+            if nombre_cargo.get() and nombre_jefe.get():
+                # Insertar jefe si no existe
+                db.cursor.execute(
+                    "INSERT INTO jefe (nombreJefe) VALUES (%s) ON DUPLICATE KEY UPDATE nombreJefe=VALUES(nombreJefe)",
+                    (nombre_jefe.get(),)
+                )
+                db.connection.commit()
+
+                # Obtener el ID del jefe
+                db.cursor.execute("SELECT id FROM jefe WHERE nombreJefe=%s", (nombre_jefe.get(),))
+                resultado = db.cursor.fetchone()
+                if resultado:
+                    id_jefe = resultado[0]
+                else:
+                    print("⚠️ Error inesperado: No se encontró el jefe en la base de datos.")
+                    return  # Salir sin continuar
+
+                # Insertar cargo
+                db.cursor.execute("INSERT INTO cargo (nombreCargo, idJefe) VALUES (%s, %s)",
+                                (nombre_cargo.get(), id_jefe))
+                db.connection.commit()
+                llenar_tabla()
+                limpiar()
+
+        elif seleccionada == "Modificar":
+            seleccion = tvCargos.selection()
+            if seleccion and nombre_cargo.get() and nombre_jefe.get():
+                valores = tvCargos.item(seleccion[0], "values")
+
+                # Intentar obtener el ID del jefe
+                db.cursor.execute("SELECT id FROM jefe WHERE nombreJefe=%s", (nombre_jefe.get(),))
+                resultado = db.cursor.fetchone()
+
+                if resultado:
+                    id_jefe = resultado[0]  # Si existe, obtenemos su ID
+                else:
+                    # Si no existe, lo insertamos en la base de datos
+                    db.cursor.execute("INSERT INTO jefe (nombreJefe) VALUES (%s)", (nombre_jefe.get(),))
+                    db.connection.commit()
+
+                    # Obtener el nuevo ID del jefe
+                    db.cursor.execute("SELECT id FROM jefe WHERE nombreJefe=%s", (nombre_jefe.get(),))
+                    resultado = db.cursor.fetchone()
+                    if resultado:
+                        id_jefe = resultado[0]
+                    else:
+                        print("⚠️ Error inesperado: No se pudo crear el jefe.")
+                        return
+
+                # Actualizar el cargo con el nuevo ID del jefe
+                db.cursor.execute("UPDATE cargo SET nombreCargo=%s, idJefe=%s WHERE nombreCargo=%s",
+                                (nombre_cargo.get(), id_jefe, valores[0]))
+                db.connection.commit()
+                llenar_tabla()
+                limpiar()
+
+        elif seleccionada == "Eliminar":
+            seleccion = tvCargos.selection()
+            if seleccion:
+                valores = tvCargos.item(seleccion[0], "values")
+                db.cursor.execute("DELETE FROM cargo WHERE nombreCargo=%s", (valores[0],))
+                db.connection.commit()
+                llenar_tabla()
+                limpiar()
+
     marco_cargo = ctk.CTkFrame(frame, fg_color="transparent")
     marco_cargo.pack(fill="both", expand=True, padx=20, pady=20)
 
-    # Crear los widgets dentro del marco de cargo
-    ctk.CTkLabel(marco_cargo, text="ID Cargo", text_color=COLOR_TEXTO).grid(row=0, column=0, padx=5, pady=5, sticky="w")
-    txtIdCargo = ctk.CTkEntry(marco_cargo, textvariable=id_cargo, fg_color="white", text_color=COLOR_TEXTO)
-    txtIdCargo.grid(row=0, column=1, padx=5, pady=5, sticky="ew")
+    # Contenedor central
+    contenedor = ctk.CTkFrame(marco_cargo, fg_color="transparent")
+    contenedor.pack(expand=True, pady=20)
 
-    ctk.CTkLabel(marco_cargo, text="Nombre Cargo", text_color=COLOR_TEXTO).grid(row=1, column=0, padx=5, pady=5, sticky="w")
-    txtNombreCargo = ctk.CTkEntry(marco_cargo, textvariable=nombre_cargo, fg_color="white", text_color=COLOR_TEXTO)
-    txtNombreCargo.grid(row=1, column=1, padx=5, pady=5, sticky="ew")
+    # Campos de entrada
+    ctk.CTkLabel(contenedor, text="Nombre Cargo", text_color=COLOR_TEXTO).grid(row=0, column=0, padx=10, pady=5, sticky="w")
+    txtNombreCargo = ctk.CTkEntry(contenedor, textvariable=nombre_cargo, fg_color="white", text_color=COLOR_TEXTO)
+    txtNombreCargo.grid(row=0, column=1, padx=10, pady=5, sticky="ew")
 
-    ctk.CTkLabel(marco_cargo, text="Jefe", text_color=COLOR_TEXTO).grid(row=2, column=0, padx=5, pady=5, sticky="w")
-    jefes = cargar_jefes()
-    jefes_dict = {jefe[1]: jefe[0] for jefe in jefes}
-    comboJefe = ttk.Combobox(marco_cargo, values=list(jefes_dict.keys()), textvariable=obtener_nombre_jefe)
-    comboJefe.grid(row=2, column=1, padx=5, pady=5, sticky="ew")
-    comboJefe.bind("<<ComboboxSelected>>", lambda e: id_jefe.set(jefes_dict.get(comboJefe.get(), "")))
+    ctk.CTkLabel(contenedor, text="Jefe", text_color=COLOR_TEXTO).grid(row=1, column=0, padx=10, pady=5, sticky="w")
+    txtJefe = ctk.CTkEntry(contenedor, textvariable=nombre_jefe, fg_color="white", text_color=COLOR_TEXTO)
+    txtJefe.grid(row=1, column=1, padx=10, pady=5, sticky="ew")
 
-    lblMensaje = ctk.CTkLabel(marco_cargo, text="", fg_color="transparent", text_color=COLOR_TEXTO)
-    lblMensaje.grid(row=3, column=0, columnspan=2, pady=10)
+    # Selección de acción
+    ctk.CTkLabel(contenedor, text="Acción", text_color=COLOR_TEXTO).grid(row=2, column=0, padx=10, pady=5, sticky="w")
+    comboAccion = ctk.CTkComboBox(contenedor, variable=ejecutar_accion, fg_color="white", values=["Agregar", "Modificar", "Eliminar"])
+    comboAccion.grid(row=2, column=1, padx=10, pady=5, sticky="ew")
 
-    # Botones de acciones
-    btnNuevo = ctk.CTkButton(marco_cargo, text="Guardar", command=nuevo, fg_color=COLOR_BOTON)
-    btnNuevo.grid(row=4, column=0, pady=10, sticky="ew")
+    # Botón de ejecutar
+    btnEjecutar = ctk.CTkButton(contenedor, text="Ejecutar", command=ejecutar_accion, fg_color=COLOR_BOTON)
+    btnEjecutar.grid(row=3, column=0, columnspan=2, pady=10, sticky="ew")
 
-    btnModificar = ctk.CTkButton(marco_cargo, text="Modificar", command=actualizar, fg_color=COLOR_BOTON)
-    btnModificar.grid(row=4, column=1, pady=10, sticky="ew")
-
-    btnEliminar = ctk.CTkButton(marco_cargo, text="Eliminar", command=eliminar, fg_color=COLOR_BOTON)
-    btnEliminar.grid(row=5, column=0, pady=10, sticky="ew")
-
-    btnMostrarTodos = ctk.CTkButton(marco_cargo, text="Mostrar Todos", command=llenar_tabla, fg_color=COLOR_BOTON)
-    btnMostrarTodos.grid(row=5, column=1, pady=10, sticky="ew")
-
-    # Tabla de datos
-    tvCargos = ttk.Treeview(marco_cargo, columns=("ID", "Nombre Cargo", "Jefe"), show="headings")
-    tvCargos.heading("ID", text="ID")
+    # Tabla
+    tvCargos = ttk.Treeview(marco_cargo, columns=("Nombre Cargo", "Jefe"), show="headings")
     tvCargos.heading("Nombre Cargo", text="Nombre Cargo")
     tvCargos.heading("Jefe", text="Jefe")
-    tvCargos.grid(row=6, column=0, columnspan=2, padx=5, pady=5, sticky="nsew")
+    tvCargos.pack(fill="both", expand=True, padx=10, pady=10)
     tvCargos.bind("<<TreeviewSelect>>", seleccionar)
 
-    # Configurar la expansión de la fila del Treeview
-    marco_cargo.grid_rowconfigure(6, weight=1)
-    marco_cargo.grid_columnconfigure(1, weight=1)
-
-    # Llenar la tabla inicialmente
     llenar_tabla()
 
 ##################################### Tipo de contrato ##################################################################
 def mostrar_tipodecontrato(frame):
-    global db, page_number, records_per_page, total_records
-    db = DataBase()
-    modificar = False
-    id_tipo = ctk.StringVar()
-    nombre_tipo = ctk.StringVar()
-    filtro_nombre_tipo = ctk.StringVar()  # Variable para el filtro del combobox
-
-    # Variables de paginación
-    page_number = 1
-    records_per_page = 10
-    total_records = 0
-
-    # Función para exportar a Excel
-    def exportar_a_excel_tipodecontrato():
-        try:
-            sql = "SELECT id, nombreTipoContrato FROM tipodecontrato"
-            db.cursor.execute(sql)
-            datos = db.cursor.fetchall()
-
-            df = pd.DataFrame(datos, columns=["ID Tipo", "Nombre Tipo"])
-            nombre_archivo = "tipos_de_contrato.xlsx"
-            df.to_excel(nombre_archivo, index=False)
-
-            lblMensaje.configure(text=f"Datos exportados a {nombre_archivo}", fg_color="green")
-        except Exception as e:
-            lblMensaje.configure(text=f"Error al exportar: {str(e)}", fg_color="red")
-
-    # Función para importar desde Excel
-    def importar_desde_excel_tipodecontrato():
-        try:
-            archivo_excel = filedialog.askopenfilename(
-                title="Seleccionar archivo de Excel",
-                filetypes=[("Archivos de Excel", ".xlsx"), ("Todos los archivos", ".*")]
-            )
-
-            if archivo_excel:
-                df = pd.read_excel(archivo_excel)
-
-                if "ID Tipo" in df.columns and "Nombre Tipo" in df.columns:
-                    for _, fila in df.iterrows():
-                        id_tipo = fila["ID Tipo"]
-                        nombre_tipo = fila["Nombre Tipo"]
-
-                        sql_verificar = "SELECT id FROM tipodecontrato WHERE id = %s"
-                        db.cursor.execute(sql_verificar, (id_tipo,))
-                        if db.cursor.fetchone():
-                            sql_actualizar = "UPDATE tipodecontrato SET nombreTipoContrato = %s WHERE id = %s"
-                            db.cursor.execute(sql_actualizar, (nombre_tipo, id_tipo))
-                        else:
-                            sql_insertar = "INSERT INTO tipodecontrato (id, nombreTipoContrato) VALUES (%s, %s)"
-                            db.cursor.execute(sql_insertar, (id_tipo, nombre_tipo))
-
-                    db.connection.commit()
-                    llenar_tabla()
-                    lblMensaje.configure(text="Datos importados correctamente", fg_color="green")
-                else:
-                    lblMensaje.configure(text="El archivo no tiene las columnas correctas", fg_color="red")
-        except Exception as e:
-            lblMensaje.configure(text=f"Error al importar: {str(e)}", fg_color="red")
-
-    # Función para seleccionar un registro en la tabla
-    def seleccionar(event):
-        seleccion = tvEstudiantes.selection()
-        if seleccion:
-            id = seleccion[0]
-            valores = tvEstudiantes.item(id, "values")
-            id_tipo.set(valores[0])
-            nombre_tipo.set(valores[1])
-            modificarTrue()
-
-        # Crear el marco principal
-    marco = ctk.CTkFrame(frame, fg_color="transparent")
-    marco.pack(fill="both", expand=True, padx=20, pady=20)
-
-    # Campos del formulario
-    ctk.CTkLabel(marco, text="ID Tipo", text_color=COLOR_TEXTO).grid(column=0, row=0, padx=5, pady=5, sticky="w")
-    txtIdTipo = ctk.CTkEntry(marco, textvariable=id_tipo, fg_color="white", text_color=COLOR_TEXTO)
-    txtIdTipo.grid(column=1, row=0, padx=5, pady=5, sticky="ew")
-
-    ctk.CTkLabel(marco, text="Nombre Tipo", text_color=COLOR_TEXTO).grid(column=0, row=1, padx=5, pady=5, sticky="w")
-    txtNombreTipo = ctk.CTkEntry(marco, textvariable=nombre_tipo, fg_color="white", text_color=COLOR_TEXTO)
-    txtNombreTipo.grid(column=1, row=1, padx=5, pady=5, sticky="ew")
-
-    # Mensajes de estado
-    lblMensaje = ctk.CTkLabel(marco, text="Aquí van los mensajes", fg_color="transparent", text_color=COLOR_TEXTO)
-    lblMensaje.grid(column=0, row=2, columnspan=4, pady=10)
-
-    # Configuración del Treeview
-    tvEstudiantes = ttk.Treeview(marco, selectmode='none', columns=("ID Tipo", "Nombre Tipo"), show="headings")
-    tvEstudiantes.column("ID Tipo", width=150, anchor="center")
-    tvEstudiantes.column("Nombre Tipo", width=300, anchor="center")
-    tvEstudiantes.heading("ID Tipo", text="ID Tipo", anchor="center")
-    tvEstudiantes.heading("Nombre Tipo", text="Nombre Tipo", anchor="center")
-    tvEstudiantes.grid(column=0, row=3, columnspan=4, padx=5, pady=10, sticky="nsew")
-    tvEstudiantes.bind("<<TreeviewSelect>>", seleccionar)
-
-    # Ajustar la expansión de la tabla
-    marco.grid_rowconfigure(3, weight=1)
-    marco.grid_columnconfigure(1, weight=1)
-
-    # Combobox para filtrar por nombre
-    ctk.CTkLabel(marco, text="Filtrar por Nombre Tipo", text_color=COLOR_TEXTO).grid(column=0, row=4, padx=5, pady=5, sticky="w")
-    comboFiltroNombreTipo = ttk.Combobox(marco, textvariable=filtro_nombre_tipo)
-    comboFiltroNombreTipo.grid(column=1, row=4, padx=5, pady=5, sticky="ew")
-
-    # Cargar tipos de contrato en el combobox
-    def cargar_tipos():
-        sql = "SELECT nombreTipoContrato FROM tipodecontrato"
-        db.cursor.execute(sql)
-        tipos = [fila[0] for fila in db.cursor.fetchall()]
-        comboFiltroNombreTipo["values"] = tipos
-
-    cargar_tipos()
-
-    # Función para limpiar campos
-    def limpiar_campos():
-        id_tipo.set("")
-        nombre_tipo.set("")
-        filtro_nombre_tipo.set("")
-
-    # Función para aplicar filtro
-    def aplicar_filtro(event=None):
-        llenar_tabla(filtro=filtro_nombre_tipo.get())
-        limpiar_campos()
-
-    # Vincular evento de selección del combobox
-    comboFiltroNombreTipo.bind("<<ComboboxSelected>>", aplicar_filtro)
-
-    # Botones de acción
-    btnEliminarFiltro = ctk.CTkButton(marco, text="Mostrar Consultas", command=lambda: llenar_tabla(filtro=""), fg_color=COLOR_BOTON)
-    btnEliminarFiltro.grid(column=3, row=4, padx=5, pady=5, sticky="ew")
-
-    btnEliminar = ctk.CTkButton(marco, text="Eliminar", command=eliminar, fg_color=COLOR_BOTON)
-    btnEliminar.grid(column=1, row=5, padx=5, pady=10, sticky="ew")
-
-    btnNuevo = ctk.CTkButton(marco, text="Guardar", command=nuevo, fg_color=COLOR_BOTON)
-    btnNuevo.grid(column=2, row=5, padx=5, pady=10, sticky="ew")
-
-    btnModificar = ctk.CTkButton(marco, text="Seleccionar", command=actualizar, fg_color=COLOR_BOTON)
-    btnModificar.grid(column=3, row=5, padx=5, pady=10, sticky="ew")
-
-    # Botones de exportar e importar
-    btnExportar = ctk.CTkButton(marco, text="Exportar a Excel", command=exportar_a_excel_tipodecontrato, fg_color=COLOR_BOTON)
-    btnExportar.grid(column=2, row=6, padx=5, pady=10, sticky="ew")
-
-    btnImportar = ctk.CTkButton(marco, text="Importar desde Excel", command=importar_desde_excel_tipodecontrato, fg_color=COLOR_BOTON)
-    btnImportar.grid(column=3, row=6, padx=5, pady=10, sticky="ew")
-
-    # Paginación
-    btnPrev = ctk.CTkButton(marco, text="<< Anterior", command=lambda: cambiar_pagina(-1), fg_color=COLOR_BOTON)
-    btnPrev.grid(column=0, row=7, padx=5, pady=10, sticky="ew")
-
-    btnNext = ctk.CTkButton(marco, text="Siguiente >>", command=lambda: cambiar_pagina(1), fg_color=COLOR_BOTON)
-    btnNext.grid(column=3, row=7, padx=5, pady=10, sticky="ew")
-
-
-    # Función para cambiar de página
-    def cambiar_pagina(direccion):
-        global page_number
-        page_number += direccion
-        llenar_tabla(filtro=filtro_nombre_tipo.get())
-
-    # Función para actualizar botones de paginación
-    def actualizar_botones_paginacion():
-        global total_records
-        btnPrev.configure(state='normal' if page_number > 1 else 'disabled')
-        btnNext.configure(state='normal' if page_number * records_per_page < total_records else 'disabled')
-
-    # Función para llenar la tabla
-    def llenar_tabla(filtro=""):
-        vaciar_tabla()
-        global total_records
-
-        offset = (page_number - 1) * records_per_page
-
-        if filtro:
-            sql_count = "SELECT COUNT(*) FROM tipodecontrato WHERE nombreTipoContrato LIKE %s"
-            db.cursor.execute(sql_count, ('%' + filtro + '%',))
-            total_records = db.cursor.fetchone()[0]
-
-            sql = f"SELECT id, nombreTipoContrato FROM tipodecontrato WHERE nombreTipoContrato LIKE %s LIMIT {records_per_page} OFFSET {offset}"
-            db.cursor.execute(sql, ('%' + filtro + '%',))
-        else:
-            sql_count = "SELECT COUNT(*) FROM tipodecontrato"
-            db.cursor.execute(sql_count)
-            total_records = db.cursor.fetchone()[0]
-
-            sql = f"SELECT id, nombreTipoContrato FROM tipodecontrato LIMIT {records_per_page} OFFSET {offset}"
-            db.cursor.execute(sql)
-
-        filas = db.cursor.fetchall()
-
-        for fila in filas:
-            id = fila[0]
-            tvEstudiantes.insert("", 'end', id, text=id, values=(fila[0], fila[1]))
-
-        actualizar_botones_paginacion()
-
-    # Función para vaciar la tabla
-    def vaciar_tabla():
-        filas = tvEstudiantes.get_children()
-        for fila in filas:
-            tvEstudiantes.delete(fila)
-
-    # Función para validar campos
-    def validar():
-        return len(id_tipo.get()) > 0 and len(nombre_tipo.get()) > 0
-
-    # Función para limpiar campos
-    def limpiar():
-        id_tipo.set("")
-        nombre_tipo.set("")
-
-    # Función para guardar un nuevo registro
-    def nuevo():
-        if not modificar:
-            if validar():
-                val = (id_tipo.get(), nombre_tipo.get())
-                sql = "INSERT INTO tipodecontrato (id, nombreTipoContrato) VALUES (%s, %s)"
-                db.cursor.execute(sql, val)
-                db.connection.commit()
-                lblMensaje.configure(text="Se ha guardado el registro con éxito", fg_color="green")
-                llenar_tabla()
-                limpiar()
-            else:
-                lblMensaje.configure(text="Los campos no deben estar vacíos", fg_color="red")
-        else:
-            modificarFalse()
-
-    # Función para eliminar un registro
-    def eliminar():
-        seleccion = tvEstudiantes.selection()
-        if seleccion:
-            id = seleccion[0]
-            if int(id) > 0:
-                sql = "DELETE FROM tipodecontrato WHERE id=%s"
-                db.cursor.execute(sql, (id,))
-                db.connection.commit()
-                tvEstudiantes.delete(id)
-                lblMensaje.configure(text="Se ha eliminado el registro correctamente")
-                limpiar()
-                llenar_tabla()
-
-    # Función para actualizar un registro
-    def actualizar():
-        if modificar:
-            if validar():
-                val = (nombre_tipo.get(), id_tipo.get())
-                sql = "UPDATE tipodecontrato SET nombreTipoContrato=%s WHERE id=%s"
-                db.cursor.execute(sql, val)
-                db.connection.commit()
-                lblMensaje.configure(text="Se ha modificado el registro con éxito", fg_color="green")
-                llenar_tabla()
-                limpiar()
-            else:
-                lblMensaje.configure(text="Los campos no deben estar vacíos", fg_color="red")
-        else:
-            modificarTrue()
-
-    # Función para habilitar la edición
-    def modificarTrue():
-        nonlocal modificar
-        modificar = True
-        tvEstudiantes.config(selectmode='browse')
-        btnNuevo.configure(text="Nuevo")
-        btnModificar.configure(text="Modificar")
-        btnEliminar.configure(state='normal')
-
-    # Función para deshabilitar la edición
-    def modificarFalse():
-        nonlocal modificar
-        modificar = False
-        tvEstudiantes.config(selectmode='none')
-        btnNuevo.configure(text="Guardar")
-        btnModificar.configure(text="Seleccionar")
-        btnEliminar.configure(state='disabled')
-
-    # Llenar la tabla al iniciar
-    llenar_tabla()
-
-########################################### Pantalla dependencias ########################################################3
-def mostrar_dependencia(frame):
     global db
     db = DataBase()
-    modificar = False
-    id_dependencia = ctk.StringVar()
-    nombre_dependencia = ctk.StringVar()
-    filtro_nombre = ctk.StringVar()  # Variable para el filtro de Nombre
+    tipo_contrato = ctk.StringVar()
+    accion = ctk.StringVar(value="Agregar")
+    contrato_id = None  # Para almacenar el ID del tipo de contrato seleccionado
 
-    # Variables de paginación
-    page_number = 1
-    records_per_page = 10
+    def limpiar():
+        nonlocal contrato_id
+        contrato_id = None
+        tipo_contrato.set("")
+        accion.set("Agregar")
+
+    def llenar_tabla():
+        tvContratos.delete(*tvContratos.get_children())
+        try:
+            db.cursor.execute("SELECT id, nombreTipoContrato FROM tipodecontrato")
+            for fila in db.cursor.fetchall():
+                tvContratos.insert("", "end", values=(fila[0], fila[1]))
+        except Exception as e:
+            print(f"Error al llenar la tabla: {e}")
 
     def seleccionar(event):
-        seleccion = tvDependencias.selection()
+        nonlocal contrato_id
+        seleccion = tvContratos.selection()
         if seleccion:
-            id = seleccion[0]
-            valores = tvDependencias.item(id, "values")
-            id_dependencia.set(valores[0])
-            nombre_dependencia.set(valores[1])
+            valores = tvContratos.item(seleccion[0], "values")
+            if valores:
+                contrato_id = valores[0]
+                tipo_contrato.set(valores[1])
+                accion.set("Modificar")
+
+    def ejecutar_accion():
+        nonlocal contrato_id
+        opcion = accion.get().strip()
+
+        if not tipo_contrato.get():
+            return
+
+        if opcion == "Agregar":
+            db.ejecutar_consulta("INSERT INTO tipodecontrato (nombreTipoContrato) VALUES (%s)", (tipo_contrato.get(),))
+        elif opcion == "Modificar" and contrato_id:
+            db.ejecutar_consulta("UPDATE tipodecontrato SET nombreTipoContrato=%s WHERE id=%s", (tipo_contrato.get(), contrato_id))
+        elif opcion == "Eliminar" and contrato_id:
+            db.ejecutar_consulta("DELETE FROM tipodecontrato WHERE id=%s", (contrato_id,))
+
+        llenar_tabla()
+        limpiar()
+
+    marco_contrato = ctk.CTkFrame(frame, fg_color="transparent")
+    marco_contrato.pack(fill="both", expand=True, padx=20, pady=20)
+
+    ctk.CTkLabel(marco_contrato, text="Tipo de Contrato", text_color=COLOR_TEXTO).grid(row=0, column=0, padx=5, pady=5, sticky="w")
+    ctk.CTkEntry(marco_contrato, textvariable=tipo_contrato, fg_color="white", text_color=COLOR_TEXTO).grid(row=0, column=1, padx=5, pady=5, sticky="ew")
+
+    ctk.CTkLabel(marco_contrato, text="Acción", text_color=COLOR_TEXTO).grid(row=1, column=0, padx=5, pady=5, sticky="w")
+    ctk.CTkComboBox(marco_contrato, variable=ejecutar_accion, fg_color="white", values=["Agregar", "Modificar", "Eliminar"]).grid(row=1, column=1, padx=5, pady=5, sticky="ew")
+
+    ctk.CTkButton(marco_contrato, text="Ejecutar", command=ejecutar_accion, fg_color=COLOR_BOTON).grid(row=2, column=0, columnspan=2, pady=10, sticky="ew")
+
+    frame_tabla = ctk.CTkFrame(marco_contrato)
+    frame_tabla.grid(row=3, column=0, columnspan=2, sticky="nsew", padx=5, pady=5)
+
+    tvContratos = ttk.Treeview(frame_tabla, columns=("ID", "Tipo de Contrato"), show="headings", height=10)
+    tvContratos.heading("Tipo de Contrato", text="Tipo de Contrato")
+    
+    tvContratos.column("ID", width=0, stretch=False)
+    tvContratos.column("Tipo de Contrato", width=200)
+    
+    tvContratos.pack(side="left", fill="both", expand=True)
+    tvContratos.bind("<<TreeviewSelect>>", seleccionar)
+
+    scrollbar = ttk.Scrollbar(frame_tabla, orient="vertical", command=tvContratos.yview)
+    tvContratos.configure(yscrollcommand=scrollbar.set)
+    scrollbar.pack(side="right", fill="y")
+
+    llenar_tabla()
+
+
+########################################### Pantalla Areas ########################################################3
+def mostrar_areas(frame):
+    global db
+    db = DataBase()
+    nombre_dependencia = ctk.StringVar()
+    accion = ctk.StringVar(value="Agregar")
 
     def vaciar_tabla():
-        filas = tvDependencias.get_children()
-        for fila in filas:
+        for fila in tvDependencias.get_children():
             tvDependencias.delete(fila)
 
     def limpiar():
-        id_dependencia.set("")
         nombre_dependencia.set("")
-        filtro_nombre.set("")  # Limpiar el filtro también
-
-    def llenar_tabla(filtro=None):
-        vaciar_tabla()
-        try:
-            offset = (page_number - 1) * records_per_page
-            if filtro:
-                sql = "SELECT id, nombreDependencia FROM dependencia WHERE nombreDependencia LIKE %s LIMIT %s OFFSET %s"
-                db.cursor.execute(sql, (f"%{filtro}%", records_per_page, offset))
-            else:
-                sql = "SELECT id, nombreDependencia FROM dependencia LIMIT %s OFFSET %s"
-                db.cursor.execute(sql, (records_per_page, offset))
-            filas = db.cursor.fetchall()
-            for fila in filas:
-                id = fila[0]
-                tvDependencias.insert("", 'end', id, text=id, values=(fila[0], fila[1]))
-        except Exception as e:
-            lblMensaje.configure(text=f"Error al llenar la tabla: {e}", fg_color="red")
-
-    def cargar_dependencias_en_combobox():
-        try:
-            sql = "SELECT DISTINCT nombreDependencia FROM dependencia"
-            db.cursor.execute(sql)
-            dependencias = db.cursor.fetchall()
-            nombres = [fila[0] for fila in dependencias]  # Obtener los nombres de las dependencias
-            cbFiltroNombre.configure(values=nombres)  # Actualizar el Combobox con los nombres
-        except Exception as e:
-            lblMensaje.configure(text=f"Error al cargar nombres: {e}", fg_color="red")
-
-    def modificarFalse():
-        nonlocal modificar
-        modificar = False
-        tvDependencias.config(selectmode='none')
-        btnNuevo.configure(text="Guardar")
-        btnModificar.configure(text="Seleccionar")
-        btnEliminar.configure(state='disabled')
-
-    def modificarTrue():
-        nonlocal modificar
-        modificar = True
-        tvDependencias.config(selectmode='browse')
-        btnNuevo.configure(text="Nuevo")
-        btnModificar.configure(text="Modificar")
-        btnEliminar.configure(state='normal')
-
-    def validar():
-        return len(id_dependencia.get()) > 0 and len(nombre_dependencia.get()) > 0
-
-    def eliminar():
-        seleccion = tvDependencias.selection()
-        if seleccion:
-            id = seleccion[0]
-            if int(id) > 0:
-                sql = "DELETE FROM dependencia WHERE id=%s"
-                db.cursor.execute(sql, (id,))
-                db.connection.commit()
-                tvDependencias.delete(id)
-                lblMensaje.configure(text="Se ha eliminado el registro correctamente", fg_color="green")
-                limpiar()
-                llenar_tabla()
-            else:
-                lblMensaje.configure(text="Seleccione un registro para eliminar", fg_color="red")
-
-    def nuevo():
-        if not modificar:
-            if validar():
-                val = (id_dependencia.get(), nombre_dependencia.get())
-                sql = "INSERT INTO dependencia (id, nombreDependencia) VALUES (%s, %s)"
-                try:
-                    db.cursor.execute(sql, val)
-                    db.connection.commit()
-                    lblMensaje.configure(text="Se ha guardado el registro con éxito", fg_color="green")
-                    llenar_tabla()
-                    limpiar()
-                    cargar_dependencias_en_combobox()  # Actualizar el Combobox después de agregar una nueva dependencia
-                except pymysql.err.IntegrityError as e:
-                    lblMensaje.configure(text=f"Error: {e}", fg_color="red")
-            else:
-                lblMensaje.configure(text="Los campos no deben estar vacíos", fg_color="red")
-        else:
-            modificarFalse()
-
-    def actualizar():
-        if modificar:
-            if validar():
-                seleccion = tvDependencias.selection()
-                if seleccion:
-                    id = seleccion[0]
-                    val = (nombre_dependencia.get(),)
-                    sql = "UPDATE dependencia SET nombreDependencia=%s WHERE id=%s"
-                    try:
-                        db.cursor.execute(sql, val + (id,))
-                        db.connection.commit()
-                        lblMensaje.configure(text="Se ha guardado el registro con éxito", fg_color="green")
-                        llenar_tabla()
-                        limpiar()
-                        cargar_dependencias_en_combobox()  # Actualizar el Combobox después de la actualización
-                    except pymysql.err.IntegrityError as e:
-                        lblMensaje.configure(text=f"Error: {e}", fg_color="red")
-            else:
-                lblMensaje.configure(text="Los campos no deben estar vacíos", fg_color="red")
-        else:
-            modificarTrue()
-
-    def ir_a_pagina_anterior():
-        nonlocal page_number
-        if page_number > 1:
-            page_number -= 1
-            llenar_tabla()
-            actualizar_botones_paginacion()
-
-    def ir_a_pagina_siguiente():
-        nonlocal page_number
-        page_number += 1
-        llenar_tabla()
-        actualizar_botones_paginacion()
-
-    def actualizar_botones_paginacion():
-        btnAnterior.configure(state='normal' if page_number > 1 else 'disabled')
-        btnSiguiente.configure(state='normal')  
-
-    def aplicar_filtro(event=None):
-        filtro = filtro_nombre.get()
-        if filtro:
-            llenar_tabla(filtro)
-        else:
-            llenar_tabla()
-        limpiar()
-
-    def exportar_a_excel_dependencias():
-        try:
-            sql = "SELECT id, nombreDependencia FROM dependencia"
-            db.cursor.execute(sql)
-            filas = db.cursor.fetchall()
-            
-            if filas:
-                df = pd.DataFrame(filas, columns=['ID', 'Nombre'])
-                filepath = filedialog.asksaveasfilename(defaultextension=".xlsx",
-                                                        filetypes=[("Excel files", "*.xlsx"),
-                                                                   ("All files", ".")])
-                if filepath:
-                    df.to_excel(filepath, index=False)
-                    messagebox.showinfo("Exportación Exitosa", f"Datos exportados a {filepath}")
-                    if os.name == 'nt':  # Solo para Windows
-                        os.startfile(filepath)
-            else:
-                messagebox.showwarning("Sin Datos", "No hay datos para exportar")
-        except Exception as e:
-            messagebox.showerror("Error", f"No se pudo exportar los datos: {e}")
-
-    # Configuración del marco y los widgets
-    marco = ctk.CTkFrame(frame, fg_color="transparent")
-    marco.pack(fill="both", expand=True, padx=20, pady=20)
-
-    ctk.CTkLabel(marco, text="ID", text_color=COLOR_TEXTO).grid(column=0, row=0, padx=5, pady=5)
-    txtIdDependencia = ctk.CTkEntry(marco, textvariable=id_dependencia, fg_color="white",text_color=COLOR_TEXTO)
-    txtIdDependencia.grid(column=1, row=0)
-
-    ctk.CTkLabel(marco, text="Nombre", text_color=COLOR_TEXTO).grid(column=0, row=1, padx=5, pady=5)
-    txtNombreDependencia = ctk.CTkEntry(marco, textvariable=nombre_dependencia, fg_color="white",text_color=COLOR_TEXTO)
-    txtNombreDependencia.grid(column=1, row=1)
-
-    # Combobox para filtro por Nombre
-    ctk.CTkLabel(marco, text="Filtrar por Nombre", text_color=COLOR_TEXTO).grid(column=0, row=2, padx=5, pady=5)
-    cbFiltroNombre = ctk.CTkComboBox(marco,fg_color="white",text_color=COLOR_TEXTO)  # Eliminado textvariable
-    cbFiltroNombre.grid(column=1, row=2)
-    cbFiltroNombre.bind("<<ComboboxSelected>>", lambda e: filtro_nombre.set(cbFiltroNombre.get()))  # Actualizar la variable
-
-    lblMensaje = ctk.CTkLabel(marco, text="Aquí van los mensajes", fg_color="green")
-    lblMensaje.grid(column=0, row=3, columnspan=4)
-
-    tvDependencias = ttk.Treeview(marco, selectmode='none')
-    tvDependencias["columns"] = ("ID", "Nombre")
-    tvDependencias.column("#0", width=0, stretch='no')
-    tvDependencias.column("ID", width=150, anchor='center')
-    tvDependencias.column("Nombre", width=150, anchor='center')
-    tvDependencias.heading("#0", text="")
-    tvDependencias.heading("ID", text="ID", anchor='center')
-    tvDependencias.heading("Nombre", text="Nombre", anchor='center')
-    tvDependencias.grid(column=0, row=4, columnspan=4, padx=5)
-    tvDependencias.bind("<<TreeviewSelect>>", seleccionar)
-
-    btnEliminar = ctk.CTkButton(marco, text="Eliminar", command=eliminar, fg_color=COLOR_BOTON)
-    btnEliminar.grid(column=1, row=5)
-
-    btnNuevo = ctk.CTkButton(marco, text="Guardar", command=nuevo, fg_color=COLOR_BOTON)
-    btnNuevo.grid(column=2, row=5)
-
-    btnModificar = ctk.CTkButton(marco, text="Seleccionar", command=actualizar, fg_color=COLOR_BOTON)
-    btnModificar.grid(column=3, row=5)
-
-    # Botones de Paginación
-    btnAnterior = ctk.CTkButton(marco, text="<< Anterior", command=ir_a_pagina_anterior, fg_color=COLOR_BOTON)
-    btnAnterior.grid(column=0, row=6)
-
-    btnSiguiente = ctk.CTkButton(marco, text="Siguiente >>", command=ir_a_pagina_siguiente, fg_color=COLOR_BOTON)
-    btnSiguiente.grid(column=1, row=6)
-
-    # Botón para exportar a Excel
-    btnExportar = ctk.CTkButton(marco, text="Exportar a Excel", command=exportar_a_excel_dependencias, fg_color=COLOR_BOTON)
-    btnExportar.grid(column=2, row=6, pady=10)
-
-    llenar_tabla()
-    cargar_dependencias_en_combobox()  # Llenar el Combobox con los nombres de las dependencias al iniciar
-    actualizar_botones_paginacion()
-
-def mostrar_departamento(frame):
-    # Inicializar variables
-    db = DataBase()
-    modificar = False
-    id_departamento = ctk.StringVar()
-    nombre_departamento = ctk.StringVar()
-
-    def seleccionar(event):
-        seleccion = tvDepartamentos.selection()
-        if seleccion:
-            id = seleccion[0]
-            valores = tvDepartamentos.item(id, "values")
-            id_departamento.set(valores[0])
-            nombre_departamento.set(valores[1])
-
-    def limpiar():
-        id_departamento.set("")
-        nombre_departamento.set("")
+        accion.set("Agregar")
 
     def llenar_tabla():
-        tvDepartamentos.delete(*tvDepartamentos.get_children())
-        sql = "SELECT id, nombreDepartamento FROM departamentos"
-        db.cursor.execute(sql)
-        for fila in db.cursor.fetchall():
-            tvDepartamentos.insert("", 'end', iid=fila[0], values=(fila[0], fila[1]))
+        vaciar_tabla()
+        try:
+            sql = "SELECT nombreDependencia FROM dependencia"
+            db.cursor.execute(sql)
+            for fila in db.cursor.fetchall():
+                tvDependencias.insert("", 'end', values=(fila[0],))
+        except Exception as e:
+            print(f"Error al llenar la tabla: {e}")
 
-    def eliminar():
-        seleccion = tvDepartamentos.selection()
+    def seleccionar(event):
+        seleccion = tvDependencias.selection()
         if seleccion:
-            id = seleccion[0]
-            sql = "DELETE FROM departamentos WHERE id=%s"
-            db.cursor.execute(sql, (id,))
-            db.connection.commit()
-            tvDepartamentos.delete(id)
-            lblMensaje.configure(text="Registro eliminado correctamente", text_color="red")
-            limpiar()
+            nombre = tvDependencias.item(seleccion[0], "values")[0]
+            nombre_dependencia.set(nombre)
 
-    def nuevo():
-        if id_departamento.get() and nombre_departamento.get():
-            sql = "INSERT INTO departamentos (id, nombreDepartamento) VALUES (%s, %s)"
-            db.cursor.execute(sql, (id_departamento.get(), nombre_departamento.get()))
-            db.connection.commit()
-            lblMensaje.configure(text="Registro guardado con éxito", text_color="green")
-            llenar_tabla()
-            limpiar()
+    def ejecutar():
+        if accion.get() == "Agregar":
+            sql = "INSERT INTO dependencia (nombreDependencia) VALUES (%s)"
+            db.cursor.execute(sql, (nombre_dependencia.get(),))
+        elif accion.get() == "Modificar":
+            seleccion = tvDependencias.selection()
+            if seleccion:
+                nombre_actual = tvDependencias.item(seleccion[0], "values")[0]
+                sql = "UPDATE dependencia SET nombreDependencia=%s WHERE nombreDependencia=%s"
+                db.cursor.execute(sql, (nombre_dependencia.get(), nombre_actual))
+        elif accion.get() == "Eliminar":
+            seleccion = tvDependencias.selection()
+            if seleccion:
+                nombre_actual = tvDependencias.item(seleccion[0], "values")[0]
+                sql = "DELETE FROM dependencia WHERE nombreDependencia=%s"
+                db.cursor.execute(sql, (nombre_actual,))
+                tvDependencias.delete(seleccion[0])
+        db.connection.commit()
+        llenar_tabla()
+        limpiar()
 
-    def actualizar():
-        seleccion = tvDepartamentos.selection()
-        if seleccion and nombre_departamento.get():
-            id = seleccion[0]
-            sql = "UPDATE departamentos SET nombreDepartamento=%s WHERE id=%s"
-            db.cursor.execute(sql, (nombre_departamento.get(), id))
-            db.connection.commit()
-            lblMensaje.configure(text="Registro actualizado con éxito", text_color="blue")
-            llenar_tabla()
-            limpiar()
-
-    # UI con diseño mejorado
     marco = ctk.CTkFrame(frame, fg_color="transparent")
     marco.pack(fill="both", expand=True, padx=20, pady=20)
 
-    ctk.CTkLabel(marco, text="Agregar Departamento", text_color=COLOR_TEXTO).grid(row=0, column=0, padx=5, pady=5, sticky="w")
-    txtIdDepartamento = ctk.CTkEntry(marco, textvariable=id_departamento, fg_color="white", text_color=COLOR_TEXTO)
-    txtIdDepartamento.grid(row=0, column=1, padx=5, pady=5, sticky="ew")
+    ctk.CTkLabel(marco, text="Nombre", text_color=COLOR_TEXTO).grid(column=0, row=0, padx=5, pady=5)
+    ctk.CTkEntry(marco, textvariable=nombre_dependencia, fg_color="white", text_color=COLOR_TEXTO).grid(column=1, row=0)
 
-    ctk.CTkLabel(marco, text="Nombre Departamento", text_color=COLOR_TEXTO).grid(row=1, column=0, padx=5, pady=5, sticky="w")
-    txtNombreDepartamento = ctk.CTkEntry(marco, textvariable=nombre_departamento, fg_color="white", text_color=COLOR_TEXTO)
-    txtNombreDepartamento.grid(row=1, column=1, padx=5, pady=5, sticky="ew")
+    ctk.CTkLabel(marco, text="Acción", text_color=COLOR_TEXTO).grid(column=0, row=1, padx=5, pady=5)
+    cbAccion = ctk.CTkComboBox(marco, variable=accion, fg_color="white", values=["Agregar", "Modificar", "Eliminar"])
+    cbAccion.grid(column=1, row=1)
 
-    lblMensaje = ctk.CTkLabel(marco, text="", fg_color="transparent", text_color=COLOR_TEXTO)
-    lblMensaje.grid(row=2, column=0, columnspan=2, pady=10)
+    ctk.CTkButton(marco, text="Ejecutar", command=ejecutar, fg_color=COLOR_BOTON).grid(column=0, row=3, columnspan=2, pady=10)
 
-    # Botones de acción
-    btnNuevo = ctk.CTkButton(marco, text="Guardar", command=nuevo, fg_color=COLOR_BOTON)
-    btnNuevo.grid(row=3, column=0, pady=10, sticky="ew")
+    frame_tabla = ctk.CTkFrame(marco)
+    frame_tabla.grid(column=0, row=2, columnspan=2, padx=5, pady=5)
 
-    btnModificar = ctk.CTkButton(marco, text="Modificar", command=actualizar, fg_color=COLOR_BOTON)
-    btnModificar.grid(row=3, column=1, pady=10, sticky="ew")
+    scrollbar = ttk.Scrollbar(frame_tabla, orient="vertical")
+    scrollbar.pack(side="right", fill="y")
 
-    btnEliminar = ctk.CTkButton(marco, text="Eliminar", command=eliminar, fg_color=COLOR_BOTON)
-    btnEliminar.grid(row=4, column=0, pady=10, sticky="ew")
+    tvDependencias = ttk.Treeview(frame_tabla, selectmode='browse', columns=("Nombre",), yscrollcommand=scrollbar.set)
+    tvDependencias.column("#0", width=0, stretch='no')
+    tvDependencias.column("Nombre", width=300)
+    tvDependencias.heading("#0", text="")
+    tvDependencias.heading("Nombre", text="Nombre", anchor='center')
+    tvDependencias.pack(side="left", fill="both", expand=True)
+    tvDependencias.bind("<<TreeviewSelect>>", seleccionar)
 
-    btnMostrarTodos = ctk.CTkButton(marco, text="Mostrar Todos", command=llenar_tabla, fg_color=COLOR_BOTON)
-    btnMostrarTodos.grid(row=4, column=1, pady=10, sticky="ew")
-
-    # Tabla de datos
-    tvDepartamentos = ttk.Treeview(marco, columns=("ID", "Nombre"), show="headings")
-    tvDepartamentos.heading("ID", text="ID Departamento")
-    tvDepartamentos.heading("Nombre", text="Nombre Departamento")
-    tvDepartamentos.grid(row=5, column=0, columnspan=2, padx=5, pady=5, sticky="nsew")
-    tvDepartamentos.bind("<<TreeviewSelect>>", seleccionar)
-
-    # Ajuste de expansión
-    marco.grid_rowconfigure(5, weight=1)
-    marco.grid_columnconfigure(1, weight=1)
+    scrollbar.config(command=tvDependencias.yview)
 
     llenar_tabla()
 
-def mostrar_tipo_cuenta(frame):
-    pass
-
-
-    
-    
 def formatear_fecha_larga(fecha):
     return fecha.strftime("%d de %B de %Y")  # Formato: 22 de enero de 2024
 
-def mostrar_contrato(frame):
+def mostrar_certificado(frame):
     db = DataBase()
     modificar = False
     descripcion_contrato = tk.StringVar()
@@ -1906,8 +1212,8 @@ def mostrar_contrato(frame):
         nueva_pantalla.title("Nueva pantalla")
         
         # Adaptar la nueva pantalla al tamaño de la pantalla, pero permitiendo ver la barra de tareas
-        screen_width = pantalla.winfo_screenwidth()
-        screen_height = pantalla.winfo_screenheight() - 50  # Dejar espacio para la barra de Windows
+        screen_width = frame.winfo_screenwidth()
+        screen_height = frame.winfo_screenheight() - 50  # Dejar espacio para la barra de Windows
         nueva_pantalla.geometry(f"{screen_width}x{screen_height}+0+0")  # Colocar en la esquina superior izquierda
 
         # Crear un marco para los botones minimizar y cerrar
@@ -3237,166 +2543,727 @@ def mostrar_contrato(frame):
     cargar_combo_data()
     actualizar_botones_paginacion()
 
+
+############################################################### Pantalla contratistas ############################################################################
 def mostrar_Contratista(frame):
-    pass
+    # Configuración de la conexión a la base de datos
+    db = mysql.connector.connect(host="localhost", user="root", password="", database="contrataciones")
+    cursor = db.cursor()
 
-def mostrar_jefes(frame):
-    pass
+    # Crear un nuevo marco dentro del Toplevel para usar grid
+    frame_principal = tk.Frame(frame)
+    frame_principal.pack(fill='both', expand=True)
 
-def mostrar_usuario(frame):
-    global db, page_number, records_per_page, total_records
-    db = DataBase()
-    modificar = False
+    # Configuración del marco principal
+    marco = tk.LabelFrame(frame_principal, text="Formulario Contratistas")
+    marco.grid(row=0, column=0, padx=10, pady=10, sticky="nsew")
+
+    # Hacer que el marco sea redimensionable
+    frame_principal.grid_rowconfigure(0, weight=1)
+    frame_principal.grid_columnconfigure(0, weight=1)
+    marco.grid_rowconfigure(11, weight=1)  # Permitir que la fila de la tabla se expanda
+    marco.grid_columnconfigure(5, weight=1)  # Permitir que las columnas de widgets se expandan
+
+    # Variables de paginación
+    registros_por_pagina = 10
+    pagina_actual = 0
+    total_paginas = 0
+
+    # Función para obtener opciones para los comboboxes
+    def obtener_opciones(query):
+        cursor.execute(query)
+        return [(fila[0], fila[1]) for fila in cursor.fetchall()]
+
+    # Consultas para llenar los comboboxes
+    opciones_tipo_documento = obtener_opciones("SELECT id, numeroCedula FROM tipodedocumento")
+    opciones_departamento = obtener_opciones("SELECT id, nombreDepartamento FROM departamentos")
+    opciones_ciudad = obtener_opciones("SELECT id, nombreCiudad FROM ciudad")
+    opciones_genero = obtener_opciones("SELECT id, nombreGenero FROM genero")
+    opciones_rh = obtener_opciones("SELECT id, tipoRh FROM rh")
+    opciones_arl = obtener_opciones("SELECT id, nombreARL FROM arl")
+    opciones_eps = obtener_opciones("SELECT id, nombreEPS FROM eps")
+    opciones_banco = obtener_opciones("SELECT id, nombreBanco FROM banco")
+    opciones_estado = obtener_opciones("SELECT id, tipoEstado FROM estado")
+    opciones_usuario_creador = obtener_opciones("SELECT id, numeroCedulaCliente FROM usuarios")
+
+    # Variables de los campos de la tabla clientes
+    id_cliente = tk.StringVar()
+    numero_documento = tk.StringVar()
+    primerNombre = tk.StringVar()
+    segundoNombre = tk.StringVar()
+    primerApellido = tk.StringVar()
+    segundoApellido = tk.StringVar()
+    tipoDocumento = tk.StringVar()
+    departamentoExpedicion = tk.StringVar()
+    ciudadExpedicion = tk.StringVar()
+    fechaExpedicion = tk.StringVar()
+    genero = tk.StringVar()
+    fechaNacimento = tk.StringVar()
+    Rh = tk.StringVar()
+    dirrecion = tk.StringVar()
+    correo = tk.StringVar()
+    correoAdicional = tk.StringVar()
+    celular = tk.StringVar()
+    telefono = tk.StringVar()
+    ARL = tk.StringVar()
+    EPS = tk.StringVar()
+    PAA = tk.StringVar()
+    idBanco = tk.StringVar()
+    numeroCuenta = tk.StringVar()
+    CDP = tk.StringVar()
+    fechaRegistro = tk.StringVar()
+    ultimoAcceso = tk.StringVar()
+    Estado = tk.StringVar()
+    usuarioCreador = tk.StringVar()
+
+    def validar_correo(correo):
+        patron_correo = r"^[\w\.-]+@[\w\.-]+\.\w+$"
+        return re.match(patron_correo, correo) is not None
+
+    # Función para validar que todos los campos requeridos estén llenos
+    def validar_campos():
+        campos_faltantes = []
+        if not numero_documento.get(): campos_faltantes.append("Número Documento")
+        if not primerNombre.get(): campos_faltantes.append("Primer Nombre")
+        if not segundoNombre.get(): campos_faltantes.append("Segundo Nombre")
+        if not primerApellido.get(): campos_faltantes.append("Primer Apellido")
+        if not segundoApellido.get(): campos_faltantes.append("Segundo Apellido")
+        if not tipoDocumento.get(): campos_faltantes.append("Tipo Documento")
+        if not departamentoExpedicion.get(): campos_faltantes.append("Departamento Expedición")
+        if not ciudadExpedicion.get(): campos_faltantes.append("Ciudad Expedición")
+        if not fechaExpedicion.get(): campos_faltantes.append("Fecha Expedición")
+        if not genero.get(): campos_faltantes.append("Género")
+        if not fechaNacimento.get(): campos_faltantes.append("Fecha Nacimiento")
+        if not Rh.get(): campos_faltantes.append("RH")
+        if not dirrecion.get(): campos_faltantes.append("Dirección")
+        if not correo.get(): campos_faltantes.append("Correo")
+        if not correoAdicional.get(): campos_faltantes.append("Correo Adicional")
+        if not celular.get(): campos_faltantes.append("Celular")
+        if not telefono.get(): campos_faltantes.append("Teléfono")
+        if not ARL.get(): campos_faltantes.append("ARL")
+        if not EPS.get(): campos_faltantes.append("EPS")
+        if not PAA.get(): campos_faltantes.append("PAA")
+        if not idBanco.get(): campos_faltantes.append("Banco")
+        if not numeroCuenta.get(): campos_faltantes.append("Número Cuenta")
+        if not CDP.get(): campos_faltantes.append("CDP")
+        if not fechaRegistro.get(): campos_faltantes.append("Fecha Registro")
+        if not ultimoAcceso.get(): campos_faltantes.append("Último Acceso")
+        if not Estado.get(): campos_faltantes.append("Estado")
+        if not usuarioCreador.get(): campos_faltantes.append("Usuario Creador")
+        if not validar_correo(correo.get()): campos_faltantes.append("Correo válido")
+
+        if campos_faltantes:
+            lblMensaje.config(text=f"Faltan campos: {', '.join(campos_faltantes)}", fg="red", font=("Arial", 12, "bold"))
+            lblMensaje.grid(columnspan=6, sticky="ew")
+            ajustar_texto_mensaje()
+            return False
+        return True
+
+    def seleccionar(event):
+        seleccion = tvClientes.selection()
+        if seleccion:
+            id = seleccion[0]
+            valores = tvClientes.item(id, "values")
+
+            # Asegurarnos de que el número de columnas coincida
+            if len(valores) == len(tvClientes["columns"]):
+                id_cliente.set(valores[0])
+                numero_documento.set(valores[0])
+                primerNombre.set(valores[1])
+                segundoNombre.set(valores[2])
+                primerApellido.set(valores[3])
+                segundoApellido.set(valores[4])
+                tipoDocumento.set(valores[5])
+                departamentoExpedicion.set(valores[6])
+                ciudadExpedicion.set(valores[7])
+                fechaExpedicion.set(valores[8])
+                genero.set(valores[9])
+                fechaNacimento.set(valores[10])
+                Rh.set(valores[11])
+                dirrecion.set(valores[12])
+                correo.set(valores[13])
+                correoAdicional.set(valores[14])
+                celular.set(valores[15])
+                telefono.set(valores[16])
+                ARL.set(valores[17])
+                EPS.set(valores[18])
+                PAA.set(valores[19])
+                idBanco.set(valores[20])
+                numeroCuenta.set(valores[21])
+                CDP.set(valores[22])
+                fechaRegistro.set(valores[23])
+                ultimoAcceso.set(valores[24])
+                Estado.set(valores[25])
+                usuarioCreador.set(valores[26])
+
+                # Bloquear el campo de Número de Documento al editar
+                numero_documento_entry.config(state="readonly")
+            else:
+                lblMensaje.config(text="Error: Los datos seleccionados no tienen suficientes columnas.", fg="red", font=("Arial", 12, "bold"))
+                ajustar_texto_mensaje()
+
+    def limpiar_campos():
+        id_cliente.set("")
+        numero_documento.set("")
+        primerNombre.set("")
+        segundoNombre.set("")
+        primerApellido.set("")
+        segundoApellido.set("")
+        tipoDocumento.set("")
+        departamentoExpedicion.set("")
+        ciudadExpedicion.set("")
+        fechaExpedicion.set("")
+        genero.set("")
+        fechaNacimento.set("")
+        Rh.set("")
+        dirrecion.set("")
+        correo.set("")
+        correoAdicional.set("")
+        celular.set("")
+        telefono.set("")
+        ARL.set("")
+        EPS.set("")
+        PAA.set("")
+        idBanco.set("")
+        numeroCuenta.set("")
+        CDP.set("")
+        fechaRegistro.set("")
+        ultimoAcceso.set("")
+        Estado.set("")
+        usuarioCreador.set("")
+
+        # Desbloquear el campo de Número de Documento
+        numero_documento_entry.config(state="normal")
+
+    # Función para filtrar las opciones en los comboboxes
+    def filtrar_opciones(opciones, texto):
+        texto_filtrado = texto.lower()
+        return [txt for id, txt in opciones if texto_filtrado in txt.lower()]
+
+    def actualizar_combobox(event, opciones, combobox):
+        texto_actual = combobox.get()
+        opciones_filtradas = filtrar_opciones(opciones, texto_actual)
+        combobox['values'] = opciones_filtradas
+        combobox.icursor(len(texto_actual))  # Mover el cursor al final del texto
+        combobox.event_generate('<Down>')  # Mostrar lista desplegable
+
+    # Configuración del marco de formulario
+    numero_documento_entry = tk.Entry(marco, textvariable=numero_documento, width=20, validate="key", validatecommand=(frame.register(lambda s: s.isdigit()), "%P"))
     
+    tipoDocumento_combobox = ttk.Combobox(marco, textvariable=tipoDocumento, values=[texto for id, texto in opciones_tipo_documento])
+    tipoDocumento_combobox.bind('<KeyRelease>', lambda event: actualizar_combobox(event, opciones_tipo_documento, tipoDocumento_combobox))
+
+    departamentoExpedicion_combobox = ttk.Combobox(marco, textvariable=departamentoExpedicion, values=[texto for id, texto in opciones_departamento])
+    departamentoExpedicion_combobox.bind('<KeyRelease>', lambda event: actualizar_combobox(event, opciones_departamento, departamentoExpedicion_combobox))
+
+    ciudadExpedicion_combobox = ttk.Combobox(marco, textvariable=ciudadExpedicion, values=[texto for id, texto in opciones_ciudad])
+    ciudadExpedicion_combobox.bind('<KeyRelease>', lambda event: actualizar_combobox(event, opciones_ciudad, ciudadExpedicion_combobox))
+
+    genero_combobox = ttk.Combobox(marco, textvariable=genero, values=[texto for id, texto in opciones_genero])
+    genero_combobox.bind('<KeyRelease>', lambda event: actualizar_combobox(event, opciones_genero, genero_combobox))
+
+    Rh_combobox = ttk.Combobox(marco, textvariable=Rh, values=[texto for id, texto in opciones_rh])
+    Rh_combobox.bind('<KeyRelease>', lambda event: actualizar_combobox(event, opciones_rh, Rh_combobox))
+
+    ARL_combobox = ttk.Combobox(marco, textvariable=ARL, values=[texto for id, texto in opciones_arl])
+    ARL_combobox.bind('<KeyRelease>', lambda event: actualizar_combobox(event, opciones_arl, ARL_combobox))
+
+    EPS_combobox = ttk.Combobox(marco, textvariable=EPS, values=[texto for id, texto in opciones_eps])
+    EPS_combobox.bind('<KeyRelease>', lambda event: actualizar_combobox(event, opciones_eps, EPS_combobox))
+
+    idBanco_combobox = ttk.Combobox(marco, textvariable=idBanco, values=[texto for id, texto in opciones_banco])
+    idBanco_combobox.bind('<KeyRelease>', lambda event: actualizar_combobox(event, opciones_banco, idBanco_combobox))
+
+    Estado_combobox = ttk.Combobox(marco, textvariable=Estado, values=[texto for id, texto in opciones_estado])
+    Estado_combobox.bind('<KeyRelease>', lambda event: actualizar_combobox(event, opciones_estado, Estado_combobox))
+
+    usuarioCreador_combobox = ttk.Combobox(marco, textvariable=usuarioCreador, values=[texto for id, texto in opciones_usuario_creador])
+    usuarioCreador_combobox.bind('<KeyRelease>', lambda event: actualizar_combobox(event, opciones_usuario_creador, usuarioCreador_combobox))
+
+    filas = [
+        ("Número Documento", numero_documento, numero_documento_entry),
+        ("Primer Nombre", primerNombre, tk.Entry(marco, textvariable=primerNombre, width=20)),
+        ("Segundo Nombre", segundoNombre, tk.Entry(marco, textvariable=segundoNombre, width=20)),
+        ("Primer Apellido", primerApellido, tk.Entry(marco, textvariable=primerApellido, width=20)),
+        ("Segundo Apellido", segundoApellido, tk.Entry(marco, textvariable=segundoApellido, width=20)),
+        ("Tipo Documento", tipoDocumento, tipoDocumento_combobox),
+        ("Departamento Expedición", departamentoExpedicion, departamentoExpedicion_combobox),
+        ("Ciudad Expedición", ciudadExpedicion, ciudadExpedicion_combobox),
+        ("Fecha Expedición", fechaExpedicion, DateEntry(marco, textvariable=fechaExpedicion, width=20, background='darkblue', foreground='white', borderwidth=2, date_pattern='y-mm-dd')),
+        ("Género", genero, genero_combobox),
+        ("Fecha Nacimiento", fechaNacimento, DateEntry(marco, textvariable=fechaNacimento, width=20, background='darkblue', foreground='white', borderwidth=2, date_pattern='y-mm-dd')),
+        ("RH", Rh, Rh_combobox),
+        ("Dirección", dirrecion, tk.Entry(marco, textvariable=dirrecion, width=30)),
+        ("Correo", correo, tk.Entry(marco, textvariable=correo, width=30)),
+        ("Correo Adicional", correoAdicional, tk.Entry(marco, textvariable=correoAdicional, width=30)),
+        ("Celular", celular, tk.Entry(marco, textvariable=celular, width=20)),
+        ("Teléfono", telefono, tk.Entry(marco, textvariable=telefono, width=20)),
+        ("ARL", ARL, ARL_combobox),
+        ("EPS", EPS, EPS_combobox),
+        ("PAA", PAA, tk.Entry(marco, textvariable=PAA, width=30)),
+        ("Banco", idBanco, idBanco_combobox),
+        ("Número Cuenta", numeroCuenta, tk.Entry(marco, textvariable=numeroCuenta, width=20)),
+        ("CDP", CDP, tk.Entry(marco, textvariable=CDP, width=20)),
+        ("Fecha Registro", fechaRegistro, DateEntry(marco, textvariable=fechaRegistro, width=20, background='darkblue', foreground='white', borderwidth=2, date_pattern='y-mm-dd')),
+        ("Último Acceso", ultimoAcceso, DateEntry(marco, textvariable=ultimoAcceso, width=20, background='darkblue', foreground='white', borderwidth=2, date_pattern='y-mm-dd')),
+        ("Estado", Estado, Estado_combobox),
+        ("Usuario Creador", usuarioCreador, usuarioCreador_combobox)
+    ]
+
+
+    for i, (texto, var, widget) in enumerate(filas):
+        columna = i % 3
+        fila = i // 3
+        tk.Label(marco, text=texto).grid(column=columna*2, row=fila, padx=2, pady=2, sticky="e")
+        widget.grid(column=columna*2+1, row=fila, padx=2, pady=2, sticky="ew")
+
+    lblMensaje = tk.Label(marco, text="Aquí van los mensajes", fg="green", font=("Arial", 12, "bold"))
+    lblMensaje.grid(column=0, row=10, columnspan=6, padx=2, pady=2, sticky="ew")
+
+    # Ajustar el texto del mensaje para adaptarse al tamaño de la ventana
+    def ajustar_texto_mensaje():
+        lblMensaje.config(wraplength=marco.winfo_width())
+
+    marco.bind("<Configure>", lambda event: ajustar_texto_mensaje())
+
+    # Scrollbars
+    scrollbar_y = ttk.Scrollbar(marco, orient="vertical")
+    scrollbar_y.grid(row=12, column=10, sticky="ns")
+    scrollbar_x = ttk.Scrollbar(marco, orient="horizontal")
+    scrollbar_x.grid(row=13, column=0, columnspan=9, sticky="ew")
+
+    # Treeview con scrollbars
+    tvClientes = ttk.Treeview(marco, yscrollcommand=scrollbar_y.set, xscrollcommand=scrollbar_x.set, selectmode='browse')
+    tvClientes["columns"] = (
+        "Primer Nombre", "Segundo Nombre", "Primer Apellido", "Segundo Apellido", "Tipo de Documento",
+        "Departamento Expedicion", "Ciudad Expedición", "Fecha Expedición", "Género", "Fecha de Nacimento", "RH", "Dirreción", "Correo", "Correo Adicional",
+        "Celular", "Teléfono", "ARL", "EPS", "PAA", "Banco", "Numero de Cuenta", "CDP", "fechaRegistro", "ultimoAcceso", "Estado", "usuarioCreador"
+    )
+    tvClientes.column("#0", width=0, stretch='no')
+    tvClientes.column("primerNombre", width=100, anchor='center')
+
+    for col in tvClientes["columns"]:
+        tvClientes.column(col, width=125, anchor='center', stretch='yes')
+        tvClientes.heading(col, text=col, anchor='center')
+
+    tvClientes.grid(column=0, row=11, columnspan=10, padx=2, pady=2, sticky="nsew")
+    scrollbar_y.config(command=tvClientes.yview)
+    scrollbar_x.config(command=tvClientes.xview)
+    marco.grid_columnconfigure(0, weight=1)
+    
+    marco.grid_rowconfigure(11, weight=1)
+    marco.grid_rowconfigure(12, weight=0)
+
+    query = ""
+
+    def cargar_datos():
+        nonlocal total_paginas, query
+        # Consulta SQL con JOIN para obtener los textos correspondientes a las llaves foráneas
+        query = """
+        SELECT c.primerNombre, c.segundoNombre, c.primerApellido, c.segundoApellido,
+            td.numeroCedula AS tipoDocumento, d.nombreDepartamento AS departamentoExpedicion,
+            ci.nombreCiudad AS ciudadExpedicion, c.fechaExpedicion, g.nombreGenero AS genero,
+            c.fechaNacimento, r.tipoRh AS Rh, c.dirrecion, c.correo, c.correoAdicional, c.celular, c.telefono,
+            a.nombreARL AS ARL, e.nombreEPS AS EPS, c.PAA, b.nombreBanco AS idBanco,
+            c.numeroCuenta, c.CDP, c.fechaRegistro, c.ultimoAcceso, es.tipoEstado AS Estado, u.numeroCedulaCliente AS usuarioCreador
+        FROM clientes c
+        JOIN tipodedocumento td ON c.tipoDocumento = td.id
+        JOIN departamentos d ON c.departamentoExpedicion = d.id
+        JOIN ciudad ci ON c.ciudadExpedicion = ci.id
+        JOIN genero g ON c.genero = g.id
+        JOIN rh r ON c.Rh = r.id
+        JOIN arl a ON c.ARL = a.id
+        JOIN eps e ON c.EPS = e.id
+        JOIN banco b ON c.idBanco = b.id
+        JOIN estado es ON c.Estado = es.id
+        JOIN usuarios u ON c.usuarioCreador = u.id
+        """
+        cursor.execute(query)
+        registros = cursor.fetchall()
+        total_registros = len(registros)
+        total_paginas = (total_registros + registros_por_pagina - 1) // registros_por_pagina
+        mostrar_pagina(pagina_actual)
+
+    def mostrar_pagina(pagina):
+        tvClientes.delete(*tvClientes.get_children())
+        offset = pagina * registros_por_pagina
+        paginated_query = query + f" LIMIT {registros_por_pagina} OFFSET {offset}"
+        cursor.execute(paginated_query)
+        registros = cursor.fetchall()
+
+        for registro in registros:
+            tvClientes.insert("", "end", values=registro)
+    def avanzar_pagina():
+        nonlocal pagina_actual
+        if pagina_actual < total_paginas - 1:
+            pagina_actual += 1
+            mostrar_pagina(pagina_actual)
+
+    def retroceder_pagina():
+        nonlocal pagina_actual
+        if pagina_actual > 0:
+            pagina_actual -= 1
+            mostrar_pagina(pagina_actual)
+
+    def obtener_id_por_texto(opciones, texto):
+        for id, txt in opciones:
+            if str(txt) == str(texto):  # Asegurarse de comparar los valores como cadenas
+                return id
+        return None
+
+    def exportar_excel():
+        archivo = filedialog.asksaveasfilename(defaultextension=".xlsx", filetypes=[("Excel files", ".xlsx"), ("All files", ".*")])
+        if archivo:
+            wb = openpyxl.Workbook()
+            ws = wb.active
+            ws.title = "Clientes"
+
+            # Definir el estilo de borde
+            borde = Border(
+                left=Side(border_style="thin"),
+                right=Side(border_style="thin"),
+                top=Side(border_style="thin"),
+                bottom=Side(border_style="thin")
+            )
+
+            # Escribir los encabezados de las columnas con borde
+            for i, col in enumerate(tvClientes["columns"], 1):
+                celda = ws.cell(row=1, column=i, value=col)
+                celda.border = borde  # Aplicar borde a los encabezados
+
+            # Escribir los valores del Treeview en el archivo Excel
+            for i, item in enumerate(tvClientes.get_children(), 2):
+                for j, valor in enumerate(tvClientes.item(item)['values'], 1):
+                    ws.cell(row=i, column=j, value=valor)
+
+            # Ajustar el ancho de las columnas basado en el contenido
+            ajustar_ancho_columnas_excel(ws)
+
+            # Guardar el archivo
+            wb.save(archivo)
+            lblMensaje.config(text=f"Datos exportados a {archivo}", fg="green", font=("Arial", 12, "bold"))
+            lblMensaje.grid(columnspan=6, sticky="ew")
+
+
+    def ajustar_ancho_columnas_excel(hoja):
+        # Iterar sobre las columnas y ajustar el ancho basado en el contenido
+        for col in hoja.columns:
+            max_length = 0
+            col_letter = get_column_letter(col[0].column)  # Obtener la letra de la columna
+
+            for cell in col:
+                try:
+                    # Obtener la longitud máxima de los valores en la columna
+                    if cell.value:
+                        max_length = max(max_length, len(str(cell.value)))
+                except:
+                    pass
+
+            # Ajustar el ancho de la columna (agregar un pequeño margen)
+            hoja.column_dimensions[col_letter].width = max_length + 2
+
+    # Función para importar datos desde un archivo Excel
+    def importar_excel():
+        archivo = filedialog.askopenfilename(defaultextension=".xlsx", filetypes=[("Excel files", ".xlsx"), ("All files", ".*")])
+        if archivo:
+            wb = openpyxl.load_workbook(archivo)
+            ws = wb.active
+            # Iterar sobre las filas y añadirlas a la base de datos
+            for fila in ws.iter_rows(min_row=2, values_only=True):  # Saltar la fila de encabezado
+                # Asumimos que el Excel tiene las columnas en el mismo orden que tu base de datos
+                (
+                    numero_documento, primerNombre, segundoNombre, primerApellido, segundoApellido, tipoDocumentoTexto,
+                    departamentoExpedicionTexto, ciudadExpedicionTexto, fechaExpedicion, generoTexto, fechaNacimento,
+                    RhTexto, dirrecion, correo, correoAdicional, celular, telefono, ARLTexto, EPSTexto, PAA,
+                    bancoTexto, numeroCuenta, CDP, fechaRegistro, ultimoAcceso, estadoTexto, usuarioCreadorTexto
+                ) = fila
+
+                # Función para obtener el ID según el texto
+                def obtener_id_por_texto(opciones, texto):
+                    for id, txt in opciones:
+                        if str(txt) == str(texto):
+                            return id
+                    return None
+
+                # Obtener los IDs correspondientes a los textos de las llaves foráneas
+                id_tipo_documento = obtener_id_por_texto(opciones_tipo_documento, tipoDocumentoTexto)
+                id_departamento = obtener_id_por_texto(opciones_departamento, departamentoExpedicionTexto)
+                id_ciudad = obtener_id_por_texto(opciones_ciudad, ciudadExpedicionTexto)
+                id_genero = obtener_id_por_texto(opciones_genero, generoTexto)
+                id_rh = obtener_id_por_texto(opciones_rh, RhTexto)
+                id_arl = obtener_id_por_texto(opciones_arl, ARLTexto)
+                id_eps = obtener_id_por_texto(opciones_eps, EPSTexto)
+                id_banco = obtener_id_por_texto(opciones_banco, bancoTexto)
+                id_estado = obtener_id_por_texto(opciones_estado, estadoTexto)
+                id_usuario_creador = obtener_id_por_texto(opciones_usuario_creador, usuarioCreadorTexto)
+
+                # Confirmar que todos los IDs se obtuvieron correctamente
+                if None in [id_tipo_documento, id_departamento, id_ciudad, id_genero, id_rh, id_arl, id_eps, id_banco, id_estado, id_usuario_creador]:
+                    lblMensaje.config(text=f"Error: No se pudieron obtener todos los IDs para la fila {fila}", fg="red", font=("Arial", 12, "bold"))
+                    lblMensaje.grid(columnspan=6, sticky="ew")
+                    continue  # Saltar esta fila si no se obtuvieron todos los IDs
+
+                # Crear la tupla con los valores convertidos a IDs
+                valores = (
+                    numero_documento, primerNombre, segundoNombre, primerApellido, segundoApellido, id_tipo_documento,
+                    id_departamento, id_ciudad, fechaExpedicion, id_genero, fechaNacimento, id_rh, dirrecion,
+                    correo, correoAdicional, celular, telefono, id_arl, id_eps, PAA, id_banco, numeroCuenta, CDP,
+                    fechaRegistro, ultimoAcceso, id_estado, id_usuario_creador
+                )
+
+                # Consulta SQL
+                query = """
+                INSERT INTO clientes (id, primerNombre, segundoNombre, primerApellido, segundoApellido, tipoDocumento,
+                                    departamentoExpedicion, ciudadExpedicion, fechaExpedicion, genero, fechaNacimento, Rh, dirrecion,
+                                    correo, correoAdicional, celular, telefono, ARL, EPS, PAA, idBanco, numeroCuenta, CDP, fechaRegistro, 
+                                    ultimoAcceso, Estado, usuarioCreador)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                """
+                try:
+                    cursor.execute(query, valores)
+                    db.commit()
+                except mysql.connector.Error as err:
+                    print(f"Error al insertar fila: {fila}")
+                    print(err)
+            lblMensaje.config(text=f"Datos importados desde {archivo}", fg="green", font=("Arial", 12, "bold"))
+            lblMensaje.grid(columnspan=6, sticky="ew")
+            cargar_datos()
+
+    def exportar_pdf():
+        archivo = filedialog.asksaveasfilename(defaultextension=".pdf", filetypes=[("PDF files", ".pdf"), ("All files", ".*")])
+        if archivo:
+            c = canvas.Canvas(archivo, pagesize=letter)
+            width, height = letter
+
+            y = height - 40
+            for i, col in enumerate(tvClientes["columns"], 1):
+                c.drawString(10 * i, y, col)
+
+            y -= 20
+            for item in tvClientes.get_children():
+                for j, valor in enumerate(tvClientes.item(item)['values'], 1):
+                    c.drawString(10 * j, y, str(valor))
+                y -= 20
+                if y < 40:
+                    c.showPage()
+                    y = height - 40
+
+            c.save()
+            lblMensaje.config(text=f"Datos exportados a {archivo}", fg="green", font=("Arial", 12, "bold"))
+            lblMensaje.grid(columnspan=6, sticky="ew")
+            
+    def agregar_cliente():
+        if not validar_campos():
+            return
+
+        # Obtener los IDs correspondientes a los textos seleccionados en los comboboxes
+        id_tipo_documento = obtener_id_por_texto(opciones_tipo_documento, tipoDocumento.get())
+        id_departamento = obtener_id_por_texto(opciones_departamento, departamentoExpedicion.get())
+        id_ciudad = obtener_id_por_texto(opciones_ciudad, ciudadExpedicion.get())
+        id_genero = obtener_id_por_texto(opciones_genero, genero.get())
+        id_rh = obtener_id_por_texto(opciones_rh, Rh.get())
+        id_arl = obtener_id_por_texto(opciones_arl, ARL.get())
+        id_eps = obtener_id_por_texto(opciones_eps, EPS.get())
+        id_banco = obtener_id_por_texto(opciones_banco, idBanco.get())
+        id_estado = obtener_id_por_texto(opciones_estado, Estado.get())
+        id_usuario_creador = obtener_id_por_texto(opciones_usuario_creador, usuarioCreador.get())
+
+        if id_usuario_creador is None:
+            lblMensaje.config(text="Error: No se ha seleccionado un usuario válido en 'Usuario Creador'.", fg="red", font=("Arial", 12, "bold"))
+            lblMensaje.grid(columnspan=6, sticky="ew")
+            return
+
+        # Generar la tupla de valores con exactamente 27 elementos
+        valores = (
+            numero_documento.get(), primerNombre.get(), segundoNombre.get(), primerApellido.get(), segundoApellido.get(),
+            id_tipo_documento, id_departamento, id_ciudad, fechaExpedicion.get(), id_genero,
+            fechaNacimento.get(), id_rh, dirrecion.get(), correo.get(), correoAdicional.get(), celular.get(), telefono.get(), id_arl, id_eps,
+            PAA.get(), id_banco, numeroCuenta.get(), CDP.get(), fechaRegistro.get(), ultimoAcceso.get(), id_estado, id_usuario_creador,  # Aquí añadimos el valor extra
+        )
+
+        # Confirmar que la tupla tiene exactamente 27 valores
+        if len(valores) != 27:
+            print(f"Error: Número de valores no coincide con los placeholders. Valores: {len(valores)}")
+            return
+
+        # Consulta SQL
+        query = """
+        INSERT INTO clientes (id, primerNombre, segundoNombre, primerApellido, segundoApellido, tipoDocumento,
+                            departamentoExpedicion, ciudadExpedicion, fechaExpedicion, genero, fechaNacimento, Rh, dirrecion,
+                            correo, correoAdicional, celular, telefono, ARL, EPS, PAA, idBanco, numeroCuenta, CDP, fechaRegistro, ultimoAcceso, Estado, usuarioCreador)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        """
+
+        try:
+            # Ejecutar la consulta
+            cursor.execute(query, valores)
+            db.commit()
+            lblMensaje.config(text="Cliente agregado exitosamente", fg="green", font=("Arial", 12, "bold"))
+            lblMensaje.grid(columnspan=6, sticky="ew")
+            cargar_datos()
+        except mysql.connector.Error as err:
+            # Imprimir el error en la consola
+            print("Error durante la ejecución de la consulta SQL:", err)
+            print("Consulta SQL:", query)
+            print("Valores:", valores)
+
+    def actualizar_cliente():
+        if not validar_campos():
+            return
+
+        id_tipo_documento = obtener_id_por_texto(opciones_tipo_documento, tipoDocumento.get())
+        id_departamento = obtener_id_por_texto(opciones_departamento, departamentoExpedicion.get())
+        id_ciudad = obtener_id_por_texto(opciones_ciudad, ciudadExpedicion.get())
+        id_genero = obtener_id_por_texto(opciones_genero, genero.get())
+        id_rh = obtener_id_por_texto(opciones_rh, Rh.get())
+        id_arl = obtener_id_por_texto(opciones_arl, ARL.get())
+        id_eps = obtener_id_por_texto(opciones_eps, EPS.get())
+        id_banco = obtener_id_por_texto(opciones_banco, idBanco.get())
+        id_estado = obtener_id_por_texto(opciones_estado, Estado.get())
+        id_usuario_creador = obtener_id_por_texto(opciones_usuario_creador, usuarioCreador.get())
+
+        if id_usuario_creador is None:
+            lblMensaje.config(text="Error: No se ha seleccionado un usuario válido en 'Usuario Creador'.", fg="red", font=("Arial", 12, "bold"))
+            lblMensaje.grid(columnspan=6, sticky="ew")
+            return
+
+        query = """
+        UPDATE clientes SET primerNombre=%s, segundoNombre=%s, primerApellido=%s, segundoApellido=%s, tipoDocumento=%s,
+                            departamentoExpedicion=%s, ciudadExpedicion=%s, fechaExpedicion=%s, genero=%s, fechaNacimento=%s,
+                            Rh=%s, dirrecion=%s, correo=%s, correoAdicional=%s, celular=%s, telefono=%s, ARL=%s, EPS=%s, PAA=%s, idBanco=%s,
+                            numeroCuenta=%s, CDP=%s, fechaRegistro=%s, ultimoAcceso=%s, Estado=%s, usuarioCreador=%s
+        WHERE id=%s
+        """
+        valores = (
+            primerNombre.get(), segundoNombre.get(), primerApellido.get(), segundoApellido.get(), id_tipo_documento,
+            id_departamento, id_ciudad, fechaExpedicion.get(), id_genero, fechaNacimento.get(),
+            id_rh, dirrecion.get(), correo.get(), correoAdicional.get(), celular.get(), telefono.get(), id_arl, id_eps, PAA.get(),
+            id_banco, numeroCuenta.get(), CDP.get(), fechaRegistro.get(), ultimoAcceso.get(), id_estado, id_usuario_creador,
+            id_cliente.get()
+        )
+        cursor.execute(query, valores)
+        db.commit()
+        lblMensaje.config(text="Cliente actualizado exitosamente", fg="green", font=("Arial", 12, "bold"))
+        lblMensaje.grid(columnspan=6, sticky="ew")
+        cargar_datos()
+
+    def eliminar_cliente():
+        query = "DELETE FROM clientes WHERE id=%s"
+        cursor.execute(query, (id_cliente.get(),))
+        db.commit()
+        lblMensaje.config(text="Cliente eliminado exitosamente", fg="green", font=("Arial", 12, "bold"))
+        lblMensaje.grid(columnspan=6, sticky="ew")
+        cargar_datos()
+
+    # Botones de acción
+    btnAgregar = ctk.CTkButton(marco, text="Agregar", fg_color=COLOR_BOTON, command=agregar_cliente)
+    btnAgregar.grid(column=0, row=12, padx=5, pady=5)
+    btnActualizar = ctk.CTkButton(marco, text="Actualizar", fg_color=COLOR_BOTON,command=actualizar_cliente)
+    btnActualizar.grid(column=1, row=12, padx=5, pady=5)
+    btnEliminar = ctk.CTkButton(marco, text="Eliminar", fg_color=COLOR_BOTON,command=eliminar_cliente)
+    btnEliminar.grid(column=2, row=12, padx=5, pady=5)
+    btnLimpiar = ctk.CTkButton(marco, text="Limpiar",fg_color=COLOR_BOTON, command=limpiar_campos)
+    btnLimpiar.grid(column=3, row=12, padx=5, pady=5)
+    btnExportarExcel = ctk.CTkButton(marco, text="Exportar Excel",fg_color=COLOR_BOTON, command=exportar_excel)
+    btnExportarExcel.grid(column=4, row=12, padx=5, pady=5)
+    btnImportarExcel = ctk.CTkButton(marco, text="Importar Excel",fg_color=COLOR_BOTON, command=importar_excel)
+    btnImportarExcel.grid(column=5, row=12, padx=5, pady=5)
+    btnExportarPDF = ctk.CTkButton(marco, text="Exportar PDF",fg_color=COLOR_BOTON, command=exportar_pdf)
+    btnExportarPDF.grid(column=6, row=12, padx=5, pady=5)
+    print("Botones creados correctamente")
+    
+    
+    btnAgregar.lift()
+    btnActualizar.lift()
+    btnEliminar.lift()
+    btnLimpiar.lift()
+    btnExportarExcel.lift()
+    btnImportarExcel.lift()
+    btnExportarPDF.lift()
+
+    cargar_datos()
+
+############################################################## Pantalla usuarios ######################################################################
+def mostrar_usuario(frame, db):
     # Variables
     numero_cedula_cliente = ctk.StringVar()
     correo_cli = ctk.StringVar()
     contrasena_cli = ctk.StringVar()
-    filtro_cedula = ctk.StringVar()
-    filtro_correo = ctk.StringVar()
+    accion_usuario = ctk.StringVar(value="Agregar")
+    usuario_id = None
     
-    # Variables de paginación
-    page_number = 1
-    records_per_page = 10
-    total_records = 0
-
-    def solo_numeros(event):
-        contenido = numero_cedula_cliente.get()
-        if not contenido.isdigit():
-            numero_cedula_cliente.set(''.join(filter(str.isdigit, contenido)))
-
-    def limpiar():
-        numero_cedula_cliente.set("")
-        correo_cli.set("")
-        contrasena_cli.set("")
-        filtro_cedula.set("")
-        filtro_correo.set("")
+    def seleccionar_usuario(event):
+        nonlocal usuario_id
+        seleccion = tabla.selection()
+        if seleccion:
+            valores = tabla.item(seleccion[0], "values")
+            if valores:
+                usuario_id = valores[0]
+                numero_cedula_cliente.set(valores[1])
+                correo_cli.set(valores[2])
+                contrasena_cli.set("******")  # No mostrar la contraseña real
 
     def llenar_tabla():
-        global total_records
-        offset = (page_number - 1) * records_per_page
-        
-        try:
-            sql_count = "SELECT COUNT(*) FROM usuarios WHERE 1=1"
-            sql = "SELECT id, numeroCedulaCliente, correoCli, contraseñaCli FROM usuarios WHERE 1=1"
-            parametros = []
-            
-            if filtro_cedula.get():
-                sql_count += " AND numeroCedulaCliente LIKE %s"
-                sql += " AND numeroCedulaCliente LIKE %s"
-                parametros.append(f"%{filtro_cedula.get()}%")
+        tabla.delete(*tabla.get_children())
+        for fila in db.obtener_datos("SELECT id, numeroCedulaCliente, correoCli FROM usuarios"):
+            tabla.insert("", "end", values=fila)
 
-            if filtro_correo.get():
-                sql_count += " AND correoCli LIKE %s"
-                sql += " AND correoCli LIKE %s"
-                parametros.append(f"%{filtro_correo.get()}%")
-
-            db.cursor.execute(sql_count, tuple(parametros))
-            total_records = db.cursor.fetchone()[0]
-
-            sql += " LIMIT %s OFFSET %s"
-            parametros.extend([records_per_page, offset])
-            db.cursor.execute(sql, tuple(parametros))
-            usuarios = db.cursor.fetchall()
-
-            for usuario in usuarios:
-                tabla.insert("", 'end', iid=usuario[0], values=usuario)
-
-        except Exception as e:
-            lblMensaje.configure(text=f"Error al llenar la tabla: {e}", fg_color="red")
-
-    def seleccionar(event):
-        seleccion = tabla.selection()
-        if seleccion:
-            id = seleccion[0]
-            valores = tabla.item(id, "values")
-            numero_cedula_cliente.set(valores[1])
-            correo_cli.set(valores[2])
-            contrasena_cli.set(valores[3])
-    
-    def nuevo():
+    def ejecutar_accion():
+        accion = accion_usuario.get().strip()
         if not numero_cedula_cliente.get() or not correo_cli.get() or not contrasena_cli.get():
-            lblMensaje.configure(text="Todos los campos son obligatorios", fg_color="red")
             return
-        
-        try:
+
+        if accion == "Agregar":
             hashed_password = bcrypt.hashpw(contrasena_cli.get().encode('utf-8'), bcrypt.gensalt())
-            sql = "INSERT INTO usuarios (numeroCedulaCliente, correoCli, contraseñaCli) VALUES (%s, %s, %s)"
-            db.cursor.execute(sql, (numero_cedula_cliente.get(), correo_cli.get(), hashed_password))
-            db.connection.commit()
-            lblMensaje.configure(text="Registro guardado", fg_color="green")
-            llenar_tabla()
-            limpiar()
-        except Exception as e:
-            lblMensaje.configure(text=f"Error al guardar: {e}", fg_color="red")
-    
-    def actualizar():
-        seleccion = tabla.selection()
-        if seleccion:
-            id = seleccion[0]
-            try:
-                hashed_password = bcrypt.hashpw(contrasena_cli.get().encode('utf-8'), bcrypt.gensalt())
-                sql = "UPDATE usuarios SET numeroCedulaCliente=%s, correoCli=%s, contraseñaCli=%s WHERE id=%s"
-                db.cursor.execute(sql, (numero_cedula_cliente.get(), correo_cli.get(), hashed_password, id))
-                db.connection.commit()
-                lblMensaje.configure(text="Registro actualizado", fg_color="green")
-                llenar_tabla()
-                limpiar()
-            except Exception as e:
-                lblMensaje.configure(text=f"Error al actualizar: {e}", fg_color="red")
-        else:
-            lblMensaje.configure(text="Seleccione un registro", fg_color="red")
-    
-    def eliminar():
-        seleccion = tabla.selection()
-        if seleccion:
-            id = seleccion[0]
-            try:
-                sql = "DELETE FROM usuarios WHERE id=%s"
-                db.cursor.execute(sql, (id,))
-                db.connection.commit()
-                tabla.delete(id)
-                lblMensaje.configure(text="Registro eliminado", fg_color="green")
-                llenar_tabla()
-            except Exception as e:
-                lblMensaje.configure(text=f"Error al eliminar: {e}", fg_color="red")
-        else:
-            lblMensaje.configure(text="Seleccione un registro", fg_color="red")
+            db.ejecutar_consulta("INSERT INTO usuarios (numeroCedulaCliente, idRol, correoCli, contraseñaCli) VALUES (%s, 1, %s, %s)",
+                                 (numero_cedula_cliente.get(), correo_cli.get(), hashed_password))
+        elif accion == "Modificar" and usuario_id:
+            hashed_password = bcrypt.hashpw(contrasena_cli.get().encode('utf-8'), bcrypt.gensalt())
+            db.ejecutar_consulta("UPDATE usuarios SET numeroCedulaCliente=%s, idRol=1, correoCli=%s, contraseñaCli=%s WHERE id=%s",
+                                 (numero_cedula_cliente.get(), correo_cli.get(), hashed_password, usuario_id))
+        elif accion == "Eliminar" and usuario_id:
+            db.ejecutar_consulta("DELETE FROM usuarios WHERE id=%s", (usuario_id,))
+
+        llenar_tabla()
 
     # Interfaz gráfica
     marco_usuario = ctk.CTkFrame(frame, fg_color="transparent")
     marco_usuario.pack(fill="both", expand=True, padx=20, pady=20)
-    
+
     # Campos de entrada
-    ctk.CTkLabel(marco_usuario, text="Cédula Cliente").grid(row=0, column=0)
-    txtCedula = ctk.CTkEntry(marco_usuario, textvariable=numero_cedula_cliente)
-    txtCedula.grid(row=0, column=1)
-    txtCedula.bind("<KeyRelease>", solo_numeros)
+    ctk.CTkLabel(marco_usuario, text="Cédula Usuario", text_color=COLOR_TEXTO).grid(row=0, column=0, padx=5, pady=5)
+    ctk.CTkEntry(marco_usuario, textvariable=numero_cedula_cliente, fg_color="white", text_color=COLOR_TEXTO).grid(row=0, column=1, padx=5, pady=5)
     
-    ctk.CTkLabel(marco_usuario, text="Correo").grid(row=1, column=0)
-    ctk.CTkEntry(marco_usuario, textvariable=correo_cli).grid(row=1, column=1)
+    ctk.CTkLabel(marco_usuario, text="Correo", text_color=COLOR_TEXTO).grid(row=1, column=0, padx=5, pady=5)
+    ctk.CTkEntry(marco_usuario, textvariable=correo_cli, fg_color="white", text_color=COLOR_TEXTO).grid(row=1, column=1, padx=5, pady=5)
     
-    ctk.CTkLabel(marco_usuario, text="Contraseña").grid(row=2, column=0)
-    ctk.CTkEntry(marco_usuario, textvariable=contrasena_cli, show="*").grid(row=2, column=1)
+    ctk.CTkLabel(marco_usuario, text="Contraseña", text_color=COLOR_TEXTO).grid(row=2, column=0, padx=5, pady=5)
+    ctk.CTkEntry(marco_usuario, textvariable=contrasena_cli, show="*", fg_color="white", text_color=COLOR_TEXTO).grid(row=2, column=1, padx=5, pady=5)
     
-    lblMensaje = ctk.CTkLabel(marco_usuario, text="", fg_color="transparent")
-    lblMensaje.grid(row=3, column=0, columnspan=2)
+    ctk.CTkLabel(marco_usuario, text="Acción", text_color=COLOR_TEXTO).grid(row=3, column=0, padx=5, pady=5)
+    ctk.CTkComboBox(marco_usuario, variable=ejecutar_accion, fg_color="white", values=["Agregar", "Modificar", "Eliminar"]).grid(row=3, column=1, padx=5, pady=5)
     
-    # Botones
-    ctk.CTkButton(marco_usuario, text="Nuevo", command=nuevo).grid(row=4, column=0)
-    ctk.CTkButton(marco_usuario, text="Actualizar", command=actualizar).grid(row=4, column=1)
-    ctk.CTkButton(marco_usuario, text="Eliminar", command=eliminar).grid(row=5, column=0, columnspan=2)
+    ctk.CTkButton(marco_usuario, text="Ejecutar", command=ejecutar_accion,fg_color=COLOR_BOTON).grid(row=4, column=0, columnspan=2, pady=10)
     
     # Tabla de usuarios
-    columnas = ("ID", "Cédula", "Correo", "Contraseña")
-    tabla = ttk.Treeview(marco_usuario, columns=columnas, show="headings")
-    for col in columnas:
-        tabla.heading(col, text=col)
-    tabla.grid(row=6, column=0, columnspan=2)
-    tabla.bind("<<TreeviewSelect>>", seleccionar)
+    frame_tabla = ctk.CTkFrame(marco_usuario)
+    frame_tabla.grid(row=5, column=0, columnspan=2, sticky="nsew", padx=5, pady=5)
     
-    llenar_tabla()
+    columnas = ("ID", "Cédula", "Correo")
+    tabla = ttk.Treeview(frame_tabla, columns=columnas, show="headings", height=10)
+    tabla.heading("Cédula", text="Cédula Cliente")
+    tabla.heading("Correo", text="Correo")
+    tabla.column("ID", width=0, stretch=False)  # Ocultar ID
+    tabla.column("Cédula", width=150)
+    tabla.column("Correo", width=200)
+    tabla.pack(side="left", fill="both", expand=True)
+    tabla.bind("<<TreeviewSelect>>", seleccionar_usuario)
 
+    scrollbar = ttk.Scrollbar(frame_tabla, orient="vertical", command=tabla.yview)
+    tabla.configure(yscrollcommand=scrollbar.set)
+    scrollbar.pack(side="right", fill="y")
+
+    llenar_tabla()
 
 ############################################## Pantalla Bienvenida ###################################################
 def pantalla_bienvenida():
@@ -3444,10 +3311,9 @@ def pantalla_bienvenida():
 
     # Opciones del menú
     pantallas = [
-        "Pantalla ARL", "Pantalla EPS", "Pantalla Bancos", "Pantalla Ciudad", "Pantalla Cargo",
-        "Pantalla Tipo de contrato", "Pantalla Dependencia", "Pantalla Departamento", 
-        "Pantalla Tipo de Cuenta", "Pantalla Contrato",
-        "Pantalla Contratistas", "Pantalla Jefe", "Pantalla Registro Usuarios"
+        "Pantalla EPS y ARL", "Pantalla Bancos", "Pantalla Ciudad y Departamento", 
+        "Pantalla Cargo","Pantalla Tipo de contrato", "Pantalla Áreas", "Pantalla Certificado",
+        "Pantalla Contratistas", "Pantalla Usuarios"
     ]
 
     for texto in pantallas:
@@ -3456,7 +3322,7 @@ def pantalla_bienvenida():
             font=fuente_zurich, fg_color="#058A15", hover_color="#035E0E",
             corner_radius=10, border_width=2, border_color="#058A15"
         )
-        boton.pack(fill="x", padx=10, pady=5)
+        boton.pack(fill="x", padx=10, pady=15)
 
 ######################################################################### Pantalla de inicio ########################################################################################
 def mostrar_pantalla_inicial():
@@ -3549,7 +3415,7 @@ def validacion_datos(pantalla_sesion):
             usuario_iniciado=True
             pantalla_sesion.withdraw()
             if rol == 1:
-                pantalla_sesion.destroy()
+                pantalla_bienvenida()
             elif rol == 2:
                 pantalla_bienvenida()
                 
@@ -3633,7 +3499,6 @@ def validar_datos():
     else:
         messagebox.showerror("Error", "No se encontró un usuario con los datos ingresados.")
     fcursor.close()
-    db.close()
 
 def mostrar_campo_contraseña(user_id):
     global entry_nueva_contraseña, boton_cambiar
@@ -3645,14 +3510,14 @@ def mostrar_campo_contraseña(user_id):
     fuente_botones = ctk.CTkFont(family="Zurich", size=22)
 
     # Campo de nueva contraseña
-    ctk.CTkLabel(container, text="Nueva Contraseña", text_color="#446344", font=fuente).grid(row=3, column=0, sticky="w", pady=5, padx=10)
+    ctk.CTkLabel(container, text="Nueva Contraseña", text_color="#446344", font=fuente).grid(row=5, column=0, sticky="w", pady=5, padx=10)
     entry_nueva_contraseña = ctk.CTkEntry(container, width=300, font=fuente, show="*", fg_color="white", text_color="black")
-    entry_nueva_contraseña.grid(row=4, column=0, pady=5, padx=10)
+    entry_nueva_contraseña.grid(row=6, column=0, pady=5, padx=10)
 
     # Botón para actualizar la contraseña
     boton_cambiar = ctk.CTkButton(container, text="Actualizar Contraseña", command=lambda: actualizar_contraseña(user_id),
                                   width=200, font=fuente_botones, fg_color="green")
-    boton_cambiar.grid(row=5, column=0, pady=15)
+    boton_cambiar.grid(row=7, column=0, pady=5)
 
 def actualizar_contraseña(user_id):
     nueva_contraseña = entry_nueva_contraseña.get().strip()
